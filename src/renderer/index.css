@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-crafted: #090B0E;
+    --surface-crafted: #0F1218;
+    --border-crafted: rgba(255, 255, 255, 0.07);
+  }
+
+  body {
+    background-color: var(--bg-crafted);
+    color: #F3F4F6;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+    overflow: hidden;
+  }
+}
+
+/* Electron App Region Drag Rules */
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom Crafted Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Monaco Editor Find Widget Close Button & Pointer Events Fix */
+.monaco-editor .find-widget {
+  z-index: 40 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45) !important;
+  pointer-events: auto !important;
+}
+
+.monaco-editor .find-widget .button {
+  cursor: pointer !important;
+  opacity: 0.85;
+  transition: opacity 0.15s ease-in-out;
+  pointer-events: auto !important;
+}
+
+.monaco-editor .find-widget .button:hover {
+  opacity: 1 !important;
+}
+
+/* Prevent Monaco Find Widget (Escape) tooltip overlay from trapping clicks on the close button */
+.monaco-editor .find-widget .button.close-button {
+  position: relative !important;
+  z-index: 50 !important;
+  pointer-events: auto !important;
+}
+
+.monaco-editor .find-widget .button.close-button::before,
+.monaco-editor .find-widget .button.close-button::after {
+  pointer-events: none !important;
+}

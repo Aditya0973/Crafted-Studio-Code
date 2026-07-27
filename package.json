@@ -1,0 +1,48 @@
+{
+  "name": "crafted-studio",
+  "version": "1.0.0",
+  "description": "Crafted Studio - Premium AI Desktop Workspace",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev:main": "tsc -p tsconfig.main.json --watch",
+    "dev:renderer": "vite",
+    "dev": "npm run build:main && concurrently -k -n \"VITE,MAIN,ELECTRON\" -c \"cyan,yellow,blue\" \"vite\" \"tsc -p tsconfig.main.json --watch\" \"node scripts/dev-electron.mjs\"",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "rebuild": "electron-rebuild"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "better-sqlite3": "^11.8.1",
+    "clsx": "^2.1.1",
+    "hotkeys-js": "^4.0.4",
+    "lucide-react": "^0.475.0",
+    "monaco-editor": "^0.56.0",
+    "node-pty": "^1.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sql.js": "^1.12.0",
+    "tailwind-merge": "^3.0.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "postcss": "^8.5.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}

@@ -1,0 +1,11 @@
+# Services
+
+ProjectService
+ToolService
+ProviderService
+AgentService
+PromptService
+MemoryService
+SettingsService
+DatabaseService
+FileService
