@@ -210,7 +210,7 @@ export const WorkbenchArea: React.FC = () => {
               onChange={(newVal: string) => updateTabContent(activeTab.path, newVal)}
               onSave={() => saveActiveTab()}
               savedViewState={activeTab.stateMetadata?.viewState}
-              onSaveViewState={(vs: unknown) => saveViewState(activeTab.path, vs)}
+              onSaveViewState={saveViewState}
             />
           ) : activeProject ? (
             <ProjectOverviewPanel project={activeProject} />

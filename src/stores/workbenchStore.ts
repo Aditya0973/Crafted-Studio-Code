@@ -165,7 +165,7 @@ export const useWorkbenchStore = create<WorkbenchStoreState>((set, get) => ({
   selectTab: (filePath: string) => {
     set({ activeTabPath: filePath });
     get().saveSession();
-    get().checkActiveFileExternalChanges();
+    // get().checkActiveFileExternalChanges(); // Disabled for diagnostic experiment
   },
 
   closeAllTabs: () => {
@@ -240,6 +240,16 @@ export const useWorkbenchStore = create<WorkbenchStoreState>((set, get) => ({
   saveViewState: (filePath: string, viewState: unknown) => {
     const { openTabs } = get();
     const key = normalizePathKey(filePath);
+    const t = performance.now().toFixed(2);
+    console.log(`[SEQ_TRACE] [${t}ms] saveViewState:CALL`, {
+      targetFilePath: filePath,
+      normalizedKey: key,
+      hasViewState: !!viewState,
+      viewStateSummary: viewState ? {
+        scrollTop: (viewState as any).scrollTop,
+        scrollLeft: (viewState as any).scrollLeft,
+      } : null,
+    });
 
     let changed = false;
     const updatedTabs = openTabs.map((tab) => {

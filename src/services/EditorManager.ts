@@ -4,6 +4,7 @@ export class EditorManager {
   private static instance: EditorManager | null = null;
 
   private editor: monaco.editor.IStandaloneCodeEditor | null = null;
+  private container: HTMLDivElement | null = null;
   private models: Map<string, monaco.editor.ITextModel> = new Map();
   private viewStates: Map<string, monaco.editor.ICodeEditorViewState> = new Map();
   private modelListeners: Map<string, monaco.IDisposable> = new Map();
@@ -115,46 +116,27 @@ export class EditorManager {
       const domNode = this.editor.getDomNode();
       if (domNode) {
         domNode.style.display = 'block';
-        this.editor.layout();
+        this.layout();
       }
     }
   }
 
   // Create single persistent Monaco editor instance attached to container
   public mountEditor(container: HTMLDivElement, onSave?: () => void): monaco.editor.IStandaloneCodeEditor {
+    this.container = container;
+
     if (this.editor) {
-      console.log(`[TAB_SWITCH_TRACE] 2. Reusing existing Monaco editor instance:`, {
-        editorId: this.editor.getId(),
-        modelUriBefore: this.editor.getModel()?.uri.toString() || 'NULL',
-        layoutInfoBefore: this.editor.getLayoutInfo(),
-        domNodeId: this.editor.getDomNode()?.id || 'NO_ID',
-      });
       const domNode = this.editor.getDomNode();
       if (domNode) {
         domNode.style.display = 'block';
         if (domNode.parentElement !== container) {
           container.appendChild(domNode);
         }
-        this.editor.layout();
+        this.layout();
       }
       return this.editor;
     }
 
-    // Instrument requestAnimationFrame and MutationObserver for Monaco rendering pipeline
-    if (typeof window !== 'undefined' && !(window as any).__monaco_raf_instrumented) {
-      (window as any).__monaco_raf_instrumented = true;
-      const origRaf = window.requestAnimationFrame.bind(window);
-      window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
-        const id = origRaf((timestamp) => {
-          console.log(`[RENDER_PIPELINE_TRACE] [${performance.now().toFixed(2)}ms] rAF executed (id: ${id})`);
-          callback(timestamp);
-        });
-        console.log(`[RENDER_PIPELINE_TRACE] [${performance.now().toFixed(2)}ms] rAF scheduled (id: ${id})`);
-        return id;
-      };
-    }
-
-    console.log(`[TAB_SWITCH_TRACE] 2. Creating NEW Monaco editor instance`);
     this.editor = monaco.editor.create(container, {
       theme: 'vs-dark',
       fontSize: 13,
@@ -179,40 +161,6 @@ export class EditorManager {
       },
     });
 
-    // Attach MutationObserver to .view-lines container
-    const domNode = this.editor.getDomNode();
-    if (domNode) {
-      const attachObserver = () => {
-        const viewLines = domNode.querySelector('.view-lines');
-        if (viewLines) {
-          const observer = new MutationObserver((mutations) => {
-            mutations.forEach((m) => {
-              const now = performance.now().toFixed(2);
-              if (m.addedNodes.length > 0) {
-                console.log(`[MUTATION_TRACE] [${now}ms] Added ${m.addedNodes.length} nodes to .view-lines:`, Array.from(m.addedNodes).map((n: any) => n.className || n.nodeName));
-              }
-              if (m.removedNodes.length > 0) {
-                console.log(`[MUTATION_TRACE] [${now}ms] Removed ${m.removedNodes.length} nodes from .view-lines:`, Array.from(m.removedNodes).map((n: any) => n.className || n.nodeName));
-              }
-            });
-          });
-          observer.observe(viewLines, { childList: true, subtree: true });
-          console.log(`[RENDER_PIPELINE_TRACE] MutationObserver attached to .view-lines`);
-        } else {
-          setTimeout(attachObserver, 50);
-        }
-      };
-      attachObserver();
-    }
-
-    // Instrument Monaco event timeline
-    this.editor.onDidChangeModel((e) => console.log('[EVENT_TRACE] 1. onDidChangeModel fired:', { oldModelUrl: e.oldModelUrl?.toString() || 'NULL', newModelUrl: e.newModelUrl?.toString() || 'NULL' }));
-    this.editor.onDidLayoutChange((e) => console.log('[EVENT_TRACE] 2. onDidLayoutChange fired:', e));
-    this.editor.onDidScrollChange((e) => console.log('[EVENT_TRACE] 3. onDidScrollChange fired:', e));
-    this.editor.onDidContentSizeChange((e) => console.log('[EVENT_TRACE] 4. onDidContentSizeChange fired:', e));
-    this.editor.onDidChangeModelContent((e) => console.log('[EVENT_TRACE] 5. onDidChangeModelContent fired:', e));
-    this.editor.onDidChangeConfiguration(() => console.log('[EVENT_TRACE] 6. onDidChangeConfiguration fired'));
-
     if (onSave) {
       this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         onSave();
@@ -227,8 +175,6 @@ export class EditorManager {
   }
 
   public layout(dimension?: { width: number; height: number }): void {
-    const now = performance.now().toFixed(2);
-    console.log(`[RENDER_PIPELINE_TRACE] [${now}ms] editor.layout() called:`, dimension || 'NO_ARGS');
     if (this.editor) {
       if (dimension) {
         this.editor.layout(dimension);
@@ -238,33 +184,24 @@ export class EditorManager {
     }
   }
 
-  // Activate or create a model for filePath without corrupting active typing or blanking editors
+  // Activate or create a model for filePath on single persistent editor instance
   public activateModel(
     filePath: string,
     initialContent: string,
     onContentChange?: (newVal: string) => void,
     savedViewState?: unknown
   ): monaco.editor.ITextModel | null {
-    if (!this.editor) return null;
-
     const normalizedPath = filePath.replace(/\\/g, '/');
-    const t0 = performance.now().toFixed(2);
-    console.log(`[RENDER_PIPELINE_TRACE] [${t0}ms] ENTRY activateModel() for "${normalizedPath}"`);
-    this.showEditor();
 
-    // 1. Save ViewState of currently active model before switching
-    if (this.currentFilePath && this.currentFilePath !== normalizedPath) {
-      try {
-        const currentVS = this.editor.saveViewState();
-        if (currentVS) {
-          this.viewStates.set(this.currentFilePath, currentVS);
-        }
-      } catch {
-        /* Non-critical */
-      }
+    if (!this.editor && this.container) {
+      this.mountEditor(this.container);
     }
 
-    // 2. Get or create target Monaco model
+    if (!this.editor) return null;
+
+    this.showEditor();
+
+    // 1. Get or create target Monaco model
     let model = this.models.get(normalizedPath);
 
     if (!model) {
@@ -303,111 +240,41 @@ export class EditorManager {
       }
     }
 
-    // 3. Set active model on persistent editor instance
-    const isModelSwitching = this.editor.getModel() !== model;
-    const tSetModel = performance.now().toFixed(2);
-    console.log(`[RENDER_PIPELINE_TRACE] [${tSetModel}ms] editor.setModel() called? ${isModelSwitching} (targetModelUri: ${model.uri.toString()})`);
+    // 2. Attach target model to persistent editor instance
+    const currentAttachedModel = this.editor.getModel();
+    const isModelSwitching = currentAttachedModel !== model;
 
-    if (isModelSwitching) {
-      this.editor.setModel(model);
-    }
-
+    this.editor.setModel(model);
     this.currentFilePath = normalizedPath;
 
-    // 4. Restore ViewState ONLY on model switch
+    // 3. Restore ViewState on model switch
     if (isModelSwitching) {
       const vs = (savedViewState as monaco.editor.ICodeEditorViewState) || this.viewStates.get(normalizedPath);
       if (vs) {
         try {
-          const tVS = performance.now().toFixed(2);
-          console.log(`[RENDER_PIPELINE_TRACE] [${tVS}ms] editor.restoreViewState() called`);
           this.editor.restoreViewState(vs);
         } catch {
           /* Non-critical */
         }
       }
-      const tFocus = performance.now().toFixed(2);
-      console.log(`[RENDER_PIPELINE_TRACE] [${tFocus}ms] editor.focus() called`);
       this.editor.focus();
     }
 
-    const tExit = performance.now().toFixed(2);
-    console.log(`[RENDER_PIPELINE_TRACE] [${tExit}ms] EXIT activateModel() for "${normalizedPath}"`);
-
-    // Direct inspect of Monaco internal view rendering state
-    try {
-      const view: any = (this.editor as any)._getViewModel ? (this.editor as any)._getViewModel() : null;
-      console.log(`[RENDER_PIPELINE_TRACE] Monaco Internal _getViewModel():`, {
-        hasViewModel: !!view,
-        linesCount: view ? view.getLineCount() : 'N/A',
-        viewportLines: view && view.getApproximateTopForLineNumber ? view.getApproximateTopForLineNumber(1) : 'N/A',
+    // Post-activation double-frame forced render sequence to recalculate viewport bounds
+    const activeEditor = this.editor;
+    requestAnimationFrame(() => {
+      activeEditor.layout();
+      requestAnimationFrame(() => {
+        if (typeof (activeEditor as any).render === 'function') {
+          (activeEditor as any).render(true);
+        } else {
+          activeEditor.layout();
+        }
+        activeEditor.focus();
       });
-    } catch (err) {
-      console.log(`[RENDER_PIPELINE_TRACE] Internal view inspect err:`, err);
-    }
-
-    this.logVisualState(`AFTER_ACTIVATE_MODEL:${normalizedPath}`);
+    });
 
     return model;
-  }
-
-  public logVisualState(caseLabel: string): void {
-    if (!this.editor) {
-      console.log(`[VISUAL_STATE_TRACE] ${caseLabel}: NO_EDITOR_INSTANCE`);
-      return;
-    }
-    const model = this.editor.getModel();
-    const domNode = this.editor.getDomNode();
-
-    // DOM Elements
-    const overflowGuard = domNode ? (domNode.querySelector('.overflow-guard') as HTMLElement | null) : null;
-    const viewLines = domNode ? (domNode.querySelector('.view-lines') as HTMLElement | null) : null;
-    const viewLineElems = domNode ? domNode.querySelectorAll('.view-line') : [];
-    const mtkSpans = domNode ? domNode.querySelectorAll('[class*="mtk"]') : [];
-
-    const getComputed = (el: HTMLElement | null) => {
-      if (!el || typeof window === 'undefined') return null;
-      const s = window.getComputedStyle(el);
-      return {
-        display: s.display,
-        visibility: s.visibility,
-        opacity: s.opacity,
-        transform: s.transform,
-      };
-    };
-
-    console.log(`[VISUAL_STATE_TRACE] ${caseLabel}:`, {
-      editorState: {
-        layoutInfo: this.editor.getLayoutInfo(),
-        visibleRanges: this.editor.getVisibleRanges(),
-        selections: this.editor.getSelections(),
-        position: this.editor.getPosition(),
-        scrollTop: this.editor.getScrollTop(),
-        scrollLeft: this.editor.getScrollLeft(),
-        scrollHeight: this.editor.getScrollHeight(),
-        contentHeight: this.editor.getContentHeight(),
-        topForLine1: this.editor.getTopForLineNumber(1),
-        hasTextFocus: this.editor.hasTextFocus(),
-      },
-      modelState: model
-        ? {
-            uri: model.uri.toString(),
-            getValueLength: model.getValueLength(),
-            getLineCount: model.getLineCount(),
-            isDisposed: model.isDisposed(),
-          }
-        : null,
-      domState: {
-        viewLineCount: viewLineElems.length,
-        hasRenderedMtkSpans: mtkSpans.length > 0,
-        mtkSpanCount: mtkSpans.length,
-        monacoEditorStyle: domNode ? { width: domNode.style.width, height: domNode.style.height } : null,
-        overflowGuardStyle: overflowGuard ? { width: overflowGuard.style.width, height: overflowGuard.style.height } : null,
-        monacoComputed: getComputed(domNode),
-        overflowGuardComputed: getComputed(overflowGuard),
-        viewLinesComputed: getComputed(viewLines),
-      },
-    });
   }
 
   // Get active viewState for current file
@@ -472,7 +339,12 @@ export class EditorManager {
 
     if (this.editor) {
       this.editor.setModel(null);
+      try {
+        this.editor.dispose();
+      } catch {}
+      this.editor = null;
     }
+    this.container = null;
     this.currentFilePath = null;
   }
 }
