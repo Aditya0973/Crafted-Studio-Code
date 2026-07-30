@@ -12,6 +12,10 @@ import { ProviderManager } from '../ai/ProviderManager';
 import { PTYService } from '../services/PTYService';
 import { ProjectDetectorService } from '../services/ProjectDetectorService';
 import { GitService } from '../services/GitService';
+import { ToolDockService } from '../services/ToolDockService';
+import { Win32WindowService } from '../services/Win32WindowService';
+
+
 
 export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   // Bootstrap State Initialization Handshake
@@ -244,4 +248,37 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.GIT_GET_NEXT_COMMIT_MSG, (_event, projectPath: string, userMsg?: string) =>
     GitService.getInstance().getNextCommitMessage(projectPath, userMsg)
   );
+
+  // Tool Dock Handlers
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_GET_ITEMS, () => ToolDockService.getTools());
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_ADD_ITEM, (_event, input: any) => ToolDockService.addTool(input));
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_UPDATE_ITEM, (_event, id: string, update: any) =>
+    ToolDockService.updateTool(id, update)
+  );
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_DELETE_ITEM, (_event, id: string) => ToolDockService.deleteTool(id));
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_REORDER_ITEMS, (_event, orderedIds: string[]) =>
+    ToolDockService.reorderTools(orderedIds)
+  );
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_LAUNCH_APP, (_event, target: string, type: any, name?: string) =>
+    ToolDockService.launchTool(target, type, name)
+  );
+
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_SELECT_EXECUTABLE, () => ToolDockService.selectExecutable(mainWindow));
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_GET_DISCOVERED_APPS, () => ToolDockService.getDiscoveredApps());
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_ARRANGE_WORKSPACE, () => {
+    const win = mainWindow || BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    if (win) {
+      return Win32WindowService.snapActiveToolAgain(win);
+    }
+    return false;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_OPEN_EXTERNAL, async (_event, url: string) => {
+
+
+    if (!url) return false;
+    await shell.openExternal(url);
+    return true;
+  });
 }
+

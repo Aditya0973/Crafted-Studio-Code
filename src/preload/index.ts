@@ -117,6 +117,21 @@ const api: ICcraftedAPI = {
       ipcRenderer.removeListener('window:remove-listener', handler);
     };
   },
+
+  getToolDockItems: () => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_GET_ITEMS),
+  addToolDockItem: (input) => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_ADD_ITEM, input),
+  updateToolDockItem: (id, update) => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_UPDATE_ITEM, id, update),
+  deleteToolDockItem: (id) => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_DELETE_ITEM, id),
+  reorderToolDockItems: (orderedIds) => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_REORDER_ITEMS, orderedIds),
+  launchTool: (target, type, name) => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_LAUNCH_APP, target, type, name),
+
+  selectExecutableFile: () => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_SELECT_EXECUTABLE),
+  getDiscoveredApps: () => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_GET_DISCOVERED_APPS),
+  arrangeWorkspace: () => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_ARRANGE_WORKSPACE),
+  openExternalUrl: (url) => ipcRenderer.invoke(IPC_CHANNELS.TOOL_DOCK_OPEN_EXTERNAL, url),
 };
 
+
+
 contextBridge.exposeInMainWorld('craftedAPI', api);
+

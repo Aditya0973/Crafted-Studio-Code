@@ -309,7 +309,19 @@ export const IPC_CHANNELS = {
   GIT_GET_INFO: 'git:get-info',
   GIT_SET_REMOTE: 'git:set-remote',
   GIT_GET_NEXT_COMMIT_MSG: 'git:get-next-commit-msg',
+  TOOL_DOCK_GET_ITEMS: 'tool-dock:get-items',
+  TOOL_DOCK_ADD_ITEM: 'tool-dock:add-item',
+  TOOL_DOCK_UPDATE_ITEM: 'tool-dock:update-item',
+  TOOL_DOCK_DELETE_ITEM: 'tool-dock:delete-item',
+  TOOL_DOCK_REORDER_ITEMS: 'tool-dock:reorder-items',
+  TOOL_DOCK_LAUNCH_APP: 'tool-dock:launch-app',
+  TOOL_DOCK_SELECT_EXECUTABLE: 'tool-dock:select-executable',
+  TOOL_DOCK_OPEN_EXTERNAL: 'tool-dock:open-external',
+  TOOL_DOCK_GET_DISCOVERED_APPS: 'tool-dock:get-discovered-apps',
+  TOOL_DOCK_ARRANGE_WORKSPACE: 'tool-dock:arrange-workspace',
 } as const;
+
+export * from './toolDock';
 
 export interface ICcraftedAPI {
   getBootstrapState: () => Promise<BootstrapState>;
@@ -361,7 +373,20 @@ export interface ICcraftedAPI {
   getGitInfo: (projectPath: string) => Promise<unknown>;
   setGitRemote: (projectPath: string, repoUrl: string) => Promise<boolean>;
   getGitNextCommitMsg: (projectPath: string, userMsg?: string) => Promise<string>;
+  getToolDockItems: () => Promise<import('./toolDock').ToolDockItem[]>;
+  addToolDockItem: (input: import('./toolDock').CreateToolInput) => Promise<import('./toolDock').ToolDockItem>;
+  updateToolDockItem: (id: string, update: import('./toolDock').UpdateToolInput) => Promise<import('./toolDock').ToolDockItem | null>;
+  deleteToolDockItem: (id: string) => Promise<boolean>;
+  reorderToolDockItems: (orderedIds: string[]) => Promise<boolean>;
+  launchTool: (target: string, type: import('./toolDock').ToolType, name?: string) => Promise<{ success: boolean; error?: string }>;
+
+  selectExecutableFile: () => Promise<string | null>;
+  openExternalUrl: (url: string) => Promise<boolean>;
+  getDiscoveredApps: () => Promise<any[]>;
+  arrangeWorkspace: () => Promise<boolean>;
+
   onStreamStart: (callback: (payload: StreamStartPayload) => void) => () => void;
+
   onStreamToken: (callback: (payload: StreamTokenPayload) => void) => () => void;
   onStreamEnd: (callback: (payload: StreamEndPayload) => void) => () => void;
   onWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void;
@@ -372,3 +397,4 @@ declare global {
     craftedAPI: ICcraftedAPI;
   }
 }
+

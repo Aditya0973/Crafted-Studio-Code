@@ -190,6 +190,54 @@ export function initializeSchema(db: IDatabase): void {
     `).run();
   }
 
+  // Table: tool_dock_items
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tool_dock_items (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('website', 'desktop_app')),
+      target TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT 'Wrench',
+      custom_icon_url TEXT,
+      badge TEXT,
+      item_order INTEGER NOT NULL DEFAULT 0,
+      open_in_builtin_browser INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  // Initialize default tool_dock_items if empty
+  const existingTools = db.prepare('SELECT COUNT(*) as count FROM tool_dock_items').get() as { count: number } | undefined;
+  if (!existingTools || existingTools.count === 0) {
+    const now = new Date().toISOString();
+    const defaultTools = [
+      { id: 'tool-browser', name: 'Browser', type: 'website', target: 'https://www.google.com', icon: 'Globe', badge: 'Web', item_order: 0, created_at: now, updated_at: now },
+      { id: 'tool-antigravity', name: 'Antigravity', type: 'desktop_app', target: 'antigravity', icon: 'Sparkles', badge: 'Active', item_order: 1, created_at: now, updated_at: now },
+      { id: 'tool-chatgpt', name: 'ChatGPT', type: 'website', target: 'https://chatgpt.com', icon: 'Bot', badge: 'AI', item_order: 2, created_at: now, updated_at: now },
+      { id: 'tool-stitch', name: 'Stitch', type: 'website', target: 'https://stitch.withgoogle.com', icon: 'Layers', badge: 'UI', item_order: 3, created_at: now, updated_at: now },
+      { id: 'tool-gemini', name: 'Gemini', type: 'website', target: 'https://gemini.google.com', icon: 'Sparkles', badge: 'AI', item_order: 4, created_at: now, updated_at: now },
+      { id: 'tool-github', name: 'GitHub', type: 'website', target: 'https://github.com', icon: 'Code', badge: 'Code', item_order: 5, created_at: now, updated_at: now },
+    ];
+
+
+    const insertTool = db.prepare(`
+      INSERT INTO tool_dock_items (id, name, type, target, icon, custom_icon_url, badge, item_order, open_in_builtin_browser, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 1, ?, ?)
+    `);
+
+    for (const tool of defaultTools) {
+      insertTool.run(tool.id, tool.name, tool.type, tool.target, tool.icon, tool.badge, tool.item_order, tool.created_at, tool.updated_at);
+    }
+  }
+
+  // Idempotent Migration: Ensure existing databases receive the Browser tool exactly once
+  db.prepare(`
+    INSERT OR IGNORE INTO tool_dock_items (id, name, type, target, icon, custom_icon_url, badge, item_order, open_in_builtin_browser, created_at, updated_at)
+    VALUES ('tool-browser', 'Browser', 'website', 'https://www.google.com', 'Globe', NULL, 'Web', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `).run();
+
+
   // Initialize default settings if not present
   const defaultSettings = [
     { key: 'theme', value: JSON.stringify('dark') },
@@ -208,3 +256,4 @@ export function initializeSchema(db: IDatabase): void {
     insertSetting.run(setting.key, setting.value);
   }
 }
+

@@ -1,5 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { WorkspacePanelId, workspaceLayoutEngine } from '../../services/WorkspaceLayoutEngine';
+import { useToolDockStore } from '../../stores/toolDockStore';
+
 
 interface PanelSplitterProps {
   splitterIndex: number;
@@ -30,12 +32,16 @@ export const PanelSplitter: React.FC<PanelSplitterProps> = ({
   }, [currentProportions]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Disable resizing while Tool Management Modal is open
+    if (useToolDockStore.getState().isModalOpen) return;
+
     e.preventDefault();
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
     liveProportionsRef.current = { ...currentProportions };
 
     if (onDragStateChange) onDragStateChange(true);
+
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingRef.current) return;

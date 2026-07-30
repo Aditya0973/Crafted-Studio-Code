@@ -30,7 +30,9 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
+      webviewTag: true,
     },
+
   });
 
   if (savedState.isMaximized) {
