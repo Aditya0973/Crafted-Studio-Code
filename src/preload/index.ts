@@ -42,6 +42,12 @@ const api: ICcraftedAPI = {
   writeFileText: (filePath: string, content: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_WRITE_TEXT, filePath, content),
   getFileStats: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_GET_STATS, filePath),
   readFileDataUrl: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_DATA_URL, filePath),
+  createFile: (filePath: string, content?: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, filePath, content),
+  createFolder: (folderPath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE_DIR, folderPath),
+  renamePath: (oldPath: string, newPath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_RENAME, oldPath, newPath),
+  trashItem: (targetPath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_TRASH, targetPath),
+  duplicatePath: (targetPath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DUPLICATE, targetPath),
+
 
   getWorkbenchSession: (projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKBENCH_GET_SESSION, projectId),

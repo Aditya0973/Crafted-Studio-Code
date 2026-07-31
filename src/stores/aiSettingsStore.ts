@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { AISettings } from '../shared/types';
 import { AIProviderStatus, AIModel } from '../ai/types';
 
-export type SettingsCategory = 'general' | 'ai-providers' | 'workspace' | 'about';
+export type SettingsCategory = 'general' | 'ai-providers' | 'keyboard-shortcuts' | 'workspace' | 'about';
 
 interface AISettingsStoreState {
   isSettingsOpen: boolean;

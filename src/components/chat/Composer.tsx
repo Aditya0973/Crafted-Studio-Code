@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { SendHorizontal, Sparkles } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useChatStore } from '../../stores/chatStore';
+import { useShortcutStore } from '../../stores/shortcutStore';
 
 export const Composer: React.FC = () => {
   const { activeProject } = useProjectStore();
@@ -25,6 +26,28 @@ export const Composer: React.FC = () => {
     }
   };
 
+  // Register Chat Command Handlers (Ctrl+L for Focus Chat Input)
+  useEffect(() => {
+    const registerHandler = useShortcutStore.getState().registerHandler;
+    const unsubs = [
+      registerHandler('chat.focusInput', () => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.select();
+        }
+      }),
+      registerHandler('chat.sendMessage', () => {
+        handleSubmit();
+      }),
+    ];
+
+    return () => {
+      unsubs.forEach((unsub) => {
+        if (typeof unsub === 'function') unsub();
+      });
+    };
+  }, [handleSubmit]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -33,7 +56,7 @@ export const Composer: React.FC = () => {
   };
 
   return (
-    <div className="border-t border-crafted-border/60 bg-crafted-surface/40 p-3 select-none">
+    <div className="border-t border-crafted-border/60 bg-crafted-surface/40 p-3 select-none font-sans">
       <form onSubmit={handleSubmit} className="relative flex flex-col space-y-2">
         <div className="relative flex items-end rounded-xl border border-crafted-border bg-crafted-surface p-1.5 focus-within:border-crafted-brand-rust/60 transition-colors shadow-crafted-card">
           <textarea
@@ -45,10 +68,10 @@ export const Composer: React.FC = () => {
             disabled={!activeProject || isSending}
             placeholder={
               activeProject
-                ? `Type a message or prompt for ${activeProject.name}... (Press Enter to send, Shift+Enter for newline)`
+                ? `Type a message or prompt for ${activeProject.name}... (Press Enter to send, Ctrl+L to focus input)`
                 : 'Select or create a project to start typing messages...'
             }
-            className="flex-1 max-h-32 resize-none bg-transparent px-2.5 py-1.5 text-xs text-crafted-text placeholder-crafted-text-dim focus:outline-none disabled:opacity-40"
+            className="flex-1 max-h-32 resize-none bg-transparent px-2.5 py-1.5 text-xs text-crafted-text placeholder-crafted-text-dim focus:outline-none disabled:opacity-40 font-sans"
           />
 
           <button
@@ -67,6 +90,8 @@ export const Composer: React.FC = () => {
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center space-x-2 font-mono text-[10px] text-crafted-text-dim">
             <span>Shift+Enter for newline</span>
+            <span>•</span>
+            <span>Ctrl+L to focus</span>
           </div>
           <span className="font-mono text-[10px] text-crafted-text-dim">
             {composerText.length > 0 ? `${composerText.length} chars` : ''}

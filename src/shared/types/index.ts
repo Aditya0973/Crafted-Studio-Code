@@ -319,7 +319,13 @@ export const IPC_CHANNELS = {
   TOOL_DOCK_OPEN_EXTERNAL: 'tool-dock:open-external',
   TOOL_DOCK_GET_DISCOVERED_APPS: 'tool-dock:get-discovered-apps',
   TOOL_DOCK_ARRANGE_WORKSPACE: 'tool-dock:arrange-workspace',
+  FILE_CREATE: 'file:create',
+  FILE_CREATE_DIR: 'file:create-dir',
+  FILE_RENAME: 'file:rename',
+  FILE_TRASH: 'file:trash',
+  FILE_DUPLICATE: 'file:duplicate',
 } as const;
+
 
 export * from './toolDock';
 
@@ -355,6 +361,11 @@ export interface ICcraftedAPI {
   writeFileText: (filePath: string, content: string) => Promise<boolean>;
   getFileStats: (filePath: string) => Promise<{ sizeBytes: number; updatedAt: string } | null>;
   readFileDataUrl: (filePath: string) => Promise<string>;
+  createFile: (filePath: string, content?: string) => Promise<boolean>;
+  createFolder: (folderPath: string) => Promise<boolean>;
+  renamePath: (oldPath: string, newPath: string) => Promise<boolean>;
+  trashItem: (targetPath: string) => Promise<boolean>;
+  duplicatePath: (targetPath: string) => Promise<string | null>;
   getWorkbenchSession: (projectId: string) => Promise<WorkbenchSession>;
   saveWorkbenchSession: (projectId: string, activeTabPath: string | null, tabs: TabItem[]) => Promise<boolean>;
   getAISettings: () => Promise<AISettings>;
@@ -379,10 +390,10 @@ export interface ICcraftedAPI {
   deleteToolDockItem: (id: string) => Promise<boolean>;
   reorderToolDockItems: (orderedIds: string[]) => Promise<boolean>;
   launchTool: (target: string, type: import('./toolDock').ToolType, name?: string) => Promise<{ success: boolean; error?: string }>;
-
   selectExecutableFile: () => Promise<string | null>;
   openExternalUrl: (url: string) => Promise<boolean>;
   getDiscoveredApps: () => Promise<any[]>;
+
   arrangeWorkspace: () => Promise<boolean>;
 
   onStreamStart: (callback: (payload: StreamStartPayload) => void) => () => void;

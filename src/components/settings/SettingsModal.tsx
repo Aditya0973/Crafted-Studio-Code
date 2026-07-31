@@ -1,7 +1,8 @@
 import React from 'react';
-import { X, Sliders, Cpu, LayoutGrid, Info, Sparkles } from 'lucide-react';
+import { X, Sliders, Cpu, LayoutGrid, Info, Keyboard } from 'lucide-react';
 import { useAISettingsStore } from '../../stores/aiSettingsStore';
 import { AIProvidersSettings } from './AIProvidersSettings';
+import { ShortcutSettings } from './ShortcutSettings';
 
 export const SettingsModal: React.FC = () => {
   const { isSettingsOpen, activeCategory, setSettingsOpen, setActiveCategory } =
@@ -41,6 +42,18 @@ export const SettingsModal: React.FC = () => {
           >
             <Cpu className="h-4 w-4 text-crafted-brand-rust" />
             <span>AI Providers</span>
+          </button>
+
+          <button
+            onClick={() => setActiveCategory('keyboard-shortcuts' as any)}
+            className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+              activeCategory === ('keyboard-shortcuts' as any)
+                ? 'bg-crafted-surface text-crafted-text border border-crafted-brand-rust font-semibold shadow-sm'
+                : 'text-crafted-text-muted hover:bg-crafted-surface-hover/70 hover:text-crafted-text'
+            }`}
+          >
+            <Keyboard className="h-4 w-4 text-crafted-brand-rust" />
+            <span>Keyboard Shortcuts</span>
           </button>
 
           <button
@@ -90,6 +103,7 @@ export const SettingsModal: React.FC = () => {
           {/* Body Content Container */}
           <div className="flex-1 overflow-y-auto p-6">
             {activeCategory === 'ai-providers' && <AIProvidersSettings />}
+            {activeCategory === ('keyboard-shortcuts' as any) && <ShortcutSettings />}
 
             {activeCategory === 'general' && (
               <div className="space-y-4 animate-fade-in font-sans">
@@ -102,28 +116,17 @@ export const SettingsModal: React.FC = () => {
 
             {activeCategory === 'workspace' && (
               <div className="space-y-4 animate-fade-in font-sans">
-                <h3 className="text-base font-bold text-crafted-text">Workspace Preferences</h3>
+                <h3 className="text-base font-bold text-crafted-text">Workspace Settings</h3>
                 <div className="rounded-xl border border-crafted-border bg-crafted-surface/40 p-4 space-y-2 text-xs text-crafted-text-muted">
-                  <p>Workspace layout and session auto-save preferences placeholder.</p>
+                  <p>Workspace layout density and auto-save options.</p>
                 </div>
               </div>
             )}
 
             {activeCategory === 'about' && (
-              <div className="space-y-4 animate-fade-in font-sans">
-                <div className="flex items-center space-x-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#433FA9] to-[#A9452D] text-white">
-                    <Sparkles className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-crafted-text">Crafted Studio</h3>
-                    <p className="text-xs text-crafted-text-muted">AI-First Desktop IDE & Workspace Architecture</p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-crafted-border bg-crafted-surface/40 p-4 space-y-2 text-xs text-crafted-text-muted">
-                  <div>Version: <span className="font-mono text-crafted-text">1.0.0</span></div>
-                  <div>Electron • React • TypeScript • SQLite</div>
-                </div>
+              <div className="space-y-4 animate-fade-in font-sans text-xs text-crafted-text-muted">
+                <h3 className="text-base font-bold text-crafted-text">About Crafted Studio</h3>
+                <p>Crafted Studio is a high-performance AI workspace for developers and designers.</p>
               </div>
             )}
           </div>

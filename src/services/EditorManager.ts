@@ -140,7 +140,7 @@ export class EditorManager {
     this.editor = monaco.editor.create(container, {
       theme: 'vs-dark',
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace font-mono",
       lineNumbers: 'on',
       wordWrap: 'on',
       automaticLayout: true,
@@ -153,13 +153,18 @@ export class EditorManager {
       minimap: { enabled: false },
       padding: { top: 10, bottom: 10 },
       quickSuggestions: true,
+      suggestOnTriggerCharacters: true,
+      parameterHints: { enabled: true },
+      hover: { enabled: true, delay: 250 },
+      bracketPairColorization: { enabled: true },
       snippetSuggestions: 'inline',
       find: {
         addExtraSpaceOnTop: false,
         autoFindInSelection: 'never',
         seedSearchStringFromSelection: 'always',
       },
-    });
+    } as any);
+
 
     if (onSave) {
       this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -174,177 +179,118 @@ export class EditorManager {
     return this.editor;
   }
 
+  public getActiveViewState(): monaco.editor.ICodeEditorViewState | null {
+    return this.editor ? this.editor.saveViewState() : null;
+  }
+
   public layout(dimension?: { width: number; height: number }): void {
     if (this.editor) {
       if (dimension) {
         this.editor.layout(dimension);
-      } else {
-        this.editor.layout();
+      } else if (this.container) {
+        const rect = this.container.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          this.editor.layout({ width: rect.width, height: rect.height });
+        }
       }
     }
   }
 
-  // Activate or create a model for filePath on single persistent editor instance
   public activateModel(
     filePath: string,
     initialContent: string,
-    onContentChange?: (newVal: string) => void,
+    onChange?: (content: string) => void,
     savedViewState?: unknown
-  ): monaco.editor.ITextModel | null {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-
-    if (!this.editor && this.container) {
-      this.mountEditor(this.container);
+  ): monaco.editor.ITextModel {
+    if (!this.editor) {
+      throw new Error('[EditorManager] Cannot activate model before editor is mounted.');
     }
 
-    if (!this.editor) return null;
+    // Save viewState (cursor position, scroll) of current file before switching
+    if (this.currentFilePath && this.currentFilePath !== filePath) {
+      const vs = this.editor.saveViewState();
+      if (vs) {
+        this.viewStates.set(this.currentFilePath, vs);
+      }
+    }
 
-    this.showEditor();
-
-    // 1. Get or create target Monaco model
-    let model = this.models.get(normalizedPath);
+    this.currentFilePath = filePath;
+    const uri = monaco.Uri.file(filePath);
+    let model = monaco.editor.getModel(uri);
 
     if (!model) {
-      const uri = monaco.Uri.file(normalizedPath);
-      const language = this.detectLanguage(normalizedPath);
-
-      const existingUriModel = monaco.editor.getModel(uri);
-      if (existingUriModel && !existingUriModel.isDisposed()) {
-        model = existingUriModel;
-        if (initialContent !== undefined && (model.getValue() === '' || model.getValue() !== initialContent)) {
-          model.setValue(initialContent);
-        }
-      } else {
-        if (existingUriModel && existingUriModel.isDisposed()) {
-          try { existingUriModel.dispose(); } catch {}
-        }
-        model = monaco.editor.createModel(initialContent || '', language, uri);
-      }
-
-      this.models.set(normalizedPath, model);
-
-      if (onContentChange) {
-        const listener = model.onDidChangeContent(() => {
-          if (model) {
-            onContentChange(model.getValue());
-          }
-        });
-        this.modelListeners.set(normalizedPath, listener);
-      }
+      const language = this.detectLanguage(filePath);
+      model = monaco.editor.createModel(initialContent, language, uri);
+      this.models.set(filePath, model);
     } else {
-      const currentVal = model.getValue();
-      if (currentVal !== initialContent) {
-        if (currentVal === '' && initialContent !== '') {
-          model.setValue(initialContent);
-        }
+      if (model.getValue() !== initialContent && initialContent.length > 0) {
+        model.setValue(initialContent);
       }
     }
 
-    // 2. Attach target model to persistent editor instance
-    const currentAttachedModel = this.editor.getModel();
-    const isModelSwitching = currentAttachedModel !== model;
+    // Listen to model content changes
+    if (onChange && !this.modelListeners.has(filePath)) {
+      const listener = model.onDidChangeContent(() => {
+        if (model) {
+          onChange(model.getValue());
+        }
+      });
+      this.modelListeners.set(filePath, listener);
+    }
 
     this.editor.setModel(model);
-    this.currentFilePath = normalizedPath;
 
-    // 3. Restore ViewState on model switch
-    if (isModelSwitching) {
-      const vs = (savedViewState as monaco.editor.ICodeEditorViewState) || this.viewStates.get(normalizedPath);
-      if (vs) {
-        try {
-          this.editor.restoreViewState(vs);
-        } catch {
-          /* Non-critical */
-        }
-      }
-      this.editor.focus();
+    // Restore viewState if available
+    const vs = savedViewState || this.viewStates.get(filePath);
+    if (vs) {
+      this.editor.restoreViewState(vs as monaco.editor.ICodeEditorViewState);
     }
 
-    // Post-activation double-frame forced render sequence to recalculate viewport bounds
-    const activeEditor = this.editor;
-    requestAnimationFrame(() => {
-      activeEditor.layout();
-      requestAnimationFrame(() => {
-        if (typeof (activeEditor as any).render === 'function') {
-          (activeEditor as any).render(true);
-        } else {
-          activeEditor.layout();
-        }
-        activeEditor.focus();
-      });
-    });
-
+    this.editor.focus();
     return model;
   }
 
-  // Get active viewState for current file
-  public getActiveViewState(): monaco.editor.ICodeEditorViewState | null {
-    if (!this.editor) return null;
-    return this.editor.saveViewState();
-  }
-
-  // Dispose ONLY the specified file model when tab closes
-  public disposeModel(filePath: string): void {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const model = this.models.get(normalizedPath);
-
+  public closeModel(filePath: string): void {
+    const model = this.models.get(filePath);
     if (model) {
-      if (this.currentFilePath === normalizedPath && this.editor) {
-        this.editor.setModel(null);
-        this.currentFilePath = null;
-      }
-
-      const listener = this.modelListeners.get(normalizedPath);
+      const listener = this.modelListeners.get(filePath);
       if (listener) {
         listener.dispose();
-        this.modelListeners.delete(normalizedPath);
+        this.modelListeners.delete(filePath);
       }
-
       model.dispose();
-      this.models.delete(normalizedPath);
-      this.viewStates.delete(normalizedPath);
+      this.models.delete(filePath);
+      this.viewStates.delete(filePath);
+    }
+
+    if (this.currentFilePath === filePath) {
+      this.currentFilePath = null;
+      if (this.editor) {
+        this.editor.setModel(null);
+      }
     }
   }
 
-  // Check if model is dirty / has unsaved edits
-  public isModelDirty(filePath: string, originalContent: string): boolean {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const model = this.models.get(normalizedPath);
-    if (!model) return false;
-    return model.getValue() !== originalContent;
+  public disposeModel(filePath: string): void {
+    this.closeModel(filePath);
   }
 
-  // Fully dispose editor and all models when workspace closes or switches projects
   public disposeAll(): void {
-    this.modelListeners.forEach((listener) => {
-      try { listener.dispose(); } catch {}
-    });
-    this.modelListeners.clear();
+    this.dispose();
+  }
 
-    this.models.forEach((model) => {
-      try {
-        if (!model.isDisposed()) model.dispose();
-      } catch {}
-    });
+  public dispose(): void {
+    this.modelListeners.forEach((listener) => listener.dispose());
+    this.modelListeners.clear();
+    this.models.forEach((model) => model.dispose());
     this.models.clear();
     this.viewStates.clear();
-
-    try {
-      monaco.editor.getModels().forEach((m) => {
-        try {
-          if (!m.isDisposed()) m.dispose();
-        } catch {}
-      });
-    } catch {}
-
     if (this.editor) {
-      this.editor.setModel(null);
-      try {
-        this.editor.dispose();
-      } catch {}
+      this.editor.dispose();
       this.editor = null;
     }
     this.container = null;
     this.currentFilePath = null;
+    EditorManager.instance = null;
   }
 }

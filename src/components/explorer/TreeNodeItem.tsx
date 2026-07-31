@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, ChevronDown, Sparkles } from 'lucide-react';
 import { TreeNode } from '../../shared/types';
 import { useExplorerStore, normalizePathKey } from '../../stores/explorerStore';
@@ -11,7 +11,16 @@ interface TreeNodeItemProps {
 }
 
 export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({ node }) => {
-  const { expandedPaths, selectedPath, toggleExpanded, selectNode } = useExplorerStore();
+  const {
+    expandedPaths,
+    selectedPath,
+    toggleExpanded,
+    selectNode,
+    renameInputPath,
+    setRenameInputPath,
+    setContextMenu,
+    renameNode,
+  } = useExplorerStore();
   const { openFile, activeTabPath } = useWorkbenchStore();
 
   const isDir = node.type === 'directory';
@@ -19,6 +28,27 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({ node }) => {
   const isExpanded = expandedPaths.has(nodeKey);
   const isActiveTab = activeTabPath ? normalizePathKey(activeTabPath) === nodeKey : false;
   const isSelected = selectedPath ? normalizePathKey(selectedPath) === nodeKey : false;
+  const isRenaming = renameInputPath ? normalizePathKey(renameInputPath) === nodeKey : false;
+
+  const [renameVal, setRenameVal] = useState(node.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameVal(node.name);
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          const dotIdx = node.name.lastIndexOf('.');
+          if (dotIdx > 0 && !isDir) {
+            inputRef.current.setSelectionRange(0, dotIdx);
+          } else {
+            inputRef.current.select();
+          }
+        }
+      }, 50);
+    }
+  }, [isRenaming, node.name, isDir]);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -37,22 +67,51 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({ node }) => {
     }
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectNode(node.path);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      node,
+    });
+  };
+
+  const submitRename = async () => {
+    if (renameVal && renameVal.trim() !== node.name) {
+      await renameNode(node.path, renameVal.trim());
+    }
+    setRenameInputPath(null);
+  };
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setRenameInputPath(null);
+    }
+  };
+
   return (
     <div>
       <div
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
         style={{ paddingLeft: `${node.depth * 12 + 6}px` }}
         className={cn(
           'group flex items-center justify-between rounded-md py-1 pr-2 text-xs transition-colors duration-150 cursor-pointer select-none',
           isActiveTab
             ? 'bg-crafted-surface border border-crafted-brand-rust/60 text-crafted-text font-bold shadow-sm'
             : isSelected
-            ? 'bg-crafted-surface/50 text-crafted-text'
+            ? 'bg-crafted-surface/60 text-crafted-text border border-crafted-border/40'
             : 'text-crafted-text-muted hover:bg-crafted-surface/60 hover:text-crafted-text'
         )}
       >
-        <div className="flex items-center space-x-1.5 min-w-0 truncate">
+        <div className="flex items-center space-x-1.5 min-w-0 flex-1 truncate">
           {/* Chevron for directories */}
           {isDir ? (
             <span className="text-crafted-text-dim shrink-0 hover:text-crafted-text">
@@ -69,22 +128,37 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({ node }) => {
           {/* Unified File Icon */}
           {getFileIcon(node.name || node.path, { isDirectory: isDir, isExpanded })}
 
-          {/* Node Name */}
-          <span className="truncate text-xs tracking-tight">{node.name}</span>
+          {/* Node Name or Inline Rename Input */}
+          {isRenaming ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={renameVal}
+              onChange={(e) => setRenameVal(e.target.value)}
+              onBlur={submitRename}
+              onKeyDown={handleRenameKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 min-w-0 bg-crafted-bg border border-crafted-brand-rust text-crafted-text px-1 py-0.2 text-xs rounded focus:outline-none font-mono"
+            />
+          ) : (
+            <span className="truncate text-xs tracking-tight">{node.name}</span>
+          )}
         </div>
 
         {/* Extensible Metadata Badges Slot */}
-        <div className="flex items-center space-x-1 shrink-0 ml-1">
-          {node.metadata?.isMemoryFile && (
-            <span
-              title="Project Memory"
-              className="flex items-center space-x-0.5 rounded bg-amber-500/10 px-1 py-0.2 font-mono text-[9px] text-amber-400 border border-amber-500/20"
-            >
-              <Sparkles className="h-2.5 w-2.5" />
-              <span>MEM</span>
-            </span>
-          )}
-        </div>
+        {!isRenaming && (
+          <div className="flex items-center space-x-1 shrink-0 ml-1">
+            {node.metadata?.isMemoryFile && (
+              <span
+                title="Project Memory"
+                className="flex items-center space-x-0.5 rounded bg-amber-500/10 px-1 py-0.2 font-mono text-[9px] text-amber-400 border border-amber-500/20"
+              >
+                <Sparkles className="h-2.5 w-2.5" />
+                <span>MEM</span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Recursive Children List */}

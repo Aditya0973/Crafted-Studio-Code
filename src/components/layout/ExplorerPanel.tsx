@@ -1,12 +1,23 @@
 import React, { useEffect } from 'react';
-import { Search, Layers, RefreshCw, FolderPlus, Loader2, FolderX } from 'lucide-react';
+import {
+  Search,
+  Layers,
+  RefreshCw,
+  FilePlus,
+  FolderPlus,
+  Loader2,
+  FolderX,
+} from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { useExplorerStore } from '../../stores/explorerStore';
+import { useShortcutStore } from '../../stores/shortcutStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 import { TreeNodeItem } from '../explorer/TreeNodeItem';
+import { ExplorerContextMenu } from '../explorer/ExplorerContextMenu';
 import { TreeNode } from '../../shared/types';
 
 export const ExplorerPanel: React.FC = () => {
-  const { activeProject, setCreateDialogOpen } = useProjectStore();
+  const { activeProject } = useProjectStore();
   const {
     rootNode,
     isLoading,
@@ -14,6 +25,12 @@ export const ExplorerPanel: React.FC = () => {
     setSearchQuery,
     loadProjectTree,
     refreshTree,
+    setContextMenu,
+    setCreateModal,
+    selectedPath,
+    setRenameInputPath,
+    setDeleteConfirmModal,
+    duplicateNode,
   } = useExplorerStore();
 
   useEffect(() => {
@@ -21,6 +38,58 @@ export const ExplorerPanel: React.FC = () => {
       loadProjectTree(activeProject.path, activeProject.id);
     }
   }, [activeProject, loadProjectTree]);
+
+  // Register Explorer Command Handlers with Central Shortcut System
+  useEffect(() => {
+    const registerHandler = useShortcutStore.getState().registerHandler;
+    const unsubs = [
+      registerHandler('explorer.newFile', () => {
+        const parentPath = selectedPath || (rootNode ? rootNode.path : '');
+        if (parentPath) {
+          setCreateModal({ isOpen: true, parentPath, type: 'file' });
+        }
+      }),
+      registerHandler('explorer.newFolder', () => {
+        const parentPath = selectedPath || (rootNode ? rootNode.path : '');
+        if (parentPath) {
+          setCreateModal({ isOpen: true, parentPath, type: 'folder' });
+        }
+      }),
+      registerHandler('explorer.rename', () => {
+        if (selectedPath) {
+          setRenameInputPath(selectedPath);
+        }
+      }),
+      registerHandler('explorer.trash', () => {
+        if (selectedPath) {
+          const itemName = selectedPath.split(/[/\\]/).pop() || selectedPath;
+          setDeleteConfirmModal({
+            isOpen: true,
+            targetPath: selectedPath,
+            itemName,
+          });
+        }
+      }),
+      registerHandler('explorer.duplicate', () => {
+        if (selectedPath) {
+          duplicateNode(selectedPath);
+        }
+      }),
+      registerHandler('explorer.focus', () => {
+        useLayoutStore.getState().setPanelVisibility('explorer', true);
+        setTimeout(() => {
+          const input = document.getElementById('explorer-search-input');
+          if (input) input.focus();
+        }, 50);
+      }),
+    ];
+
+    return () => {
+      unsubs.forEach((unsub) => {
+        if (typeof unsub === 'function') unsub();
+      });
+    };
+  }, [selectedPath, rootNode, setCreateModal, setRenameInputPath, setDeleteConfirmModal, duplicateNode]);
 
   // Search filter helper
   const filterNode = (node: TreeNode | null): TreeNode | null => {
@@ -45,8 +114,23 @@ export const ExplorerPanel: React.FC = () => {
 
   const displayedTree = filterNode(rootNode);
 
+  const handleEmptyContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!activeProject || !rootNode) return;
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      node: null,
+    });
+  };
+
   return (
-    <div className="flex flex-col h-full overflow-hidden select-none">
+    <div
+      onContextMenu={handleEmptyContextMenu}
+      className="flex flex-col h-full overflow-hidden select-none font-sans relative"
+    >
+      <ExplorerContextMenu />
+
       {/* Explorer Panel Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-crafted-border/60">
         <div className="flex items-center space-x-1.5 min-w-0">
@@ -55,7 +139,38 @@ export const ExplorerPanel: React.FC = () => {
             {activeProject ? activeProject.name : 'Explorer'}
           </span>
         </div>
+
         <div className="flex items-center space-x-1 shrink-0">
+          <button
+            onClick={() =>
+              setCreateModal({
+                isOpen: true,
+                parentPath: selectedPath || (rootNode ? rootNode.path : ''),
+                type: 'file',
+              })
+            }
+            disabled={!activeProject || isLoading}
+            title="New File (Ctrl+N)"
+            className="flex h-6 w-6 items-center justify-center rounded text-crafted-text-dim hover:bg-crafted-surface-hover hover:text-crafted-text disabled:opacity-40 transition-colors"
+          >
+            <FilePlus className="h-3.5 w-3.5" />
+          </button>
+
+          <button
+            onClick={() =>
+              setCreateModal({
+                isOpen: true,
+                parentPath: selectedPath || (rootNode ? rootNode.path : ''),
+                type: 'folder',
+              })
+            }
+            disabled={!activeProject || isLoading}
+            title="New Folder (Ctrl+Shift+N)"
+            className="flex h-6 w-6 items-center justify-center rounded text-crafted-text-dim hover:bg-crafted-surface-hover hover:text-crafted-text disabled:opacity-40 transition-colors"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+          </button>
+
           <button
             onClick={() => refreshTree()}
             title="Refresh Explorer Tree"
@@ -72,11 +187,12 @@ export const ExplorerPanel: React.FC = () => {
         <div className="relative flex items-center">
           <Search className="absolute left-2.5 h-3.5 w-3.5 text-crafted-text-dim pointer-events-none" />
           <input
+            id="explorer-search-input"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             disabled={!activeProject}
-            placeholder="Search workspace files..."
+            placeholder="Search workspace files... (Ctrl+Shift+E)"
             className="w-full rounded-md border border-crafted-border bg-crafted-surface/80 py-1 pl-8 pr-2 text-xs text-crafted-text placeholder-crafted-text-dim focus:outline-none focus:border-crafted-brand-rust/60 disabled:opacity-50 transition-colors"
           />
         </div>
@@ -100,27 +216,11 @@ export const ExplorerPanel: React.FC = () => {
                 Open or create a project to explore workspace files.
               </p>
             </div>
-            <button
-              onClick={() => setCreateDialogOpen(true)}
-              className="flex items-center space-x-1.5 rounded-lg bg-crafted-surface px-3 py-1.5 text-xs font-medium text-crafted-text border border-crafted-border hover:border-crafted-border-bright transition-colors"
-            >
-              <FolderPlus className="h-3.5 w-3.5 text-crafted-brand-rust" />
-              <span>Create Project</span>
-            </button>
           </div>
-        ) : activeProject.isMissing ? (
-          <div className="p-4 text-center text-xs text-red-400 border border-red-500/20 bg-red-500/5 rounded-lg mt-4">
-            Project folder no longer exists at:
-            <div className="font-mono text-[10px] text-crafted-text-dim mt-1 break-all">
-              {activeProject.path}
-            </div>
-          </div>
-        ) : !displayedTree ? (
-          <div className="p-6 text-center text-xs text-crafted-text-muted">
-            No matching files found.
-          </div>
-        ) : (
+        ) : displayedTree ? (
           <TreeNodeItem node={displayedTree} />
+        ) : (
+          <div className="p-4 text-center text-xs text-crafted-text-dim">No matching files found.</div>
         )}
       </div>
     </div>

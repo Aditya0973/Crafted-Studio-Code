@@ -166,18 +166,17 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   );
 
   // File Operations Controls
-  ipcMain.handle(IPC_CHANNELS.FILE_READ_TEXT, (_event, filePath: string) =>
-    FileService.readFileText(filePath)
-  );
+  ipcMain.handle(IPC_CHANNELS.FILE_READ_TEXT, (_event, filePath: string) => FileService.readFileText(filePath));
   ipcMain.handle(IPC_CHANNELS.FILE_WRITE_TEXT, (_event, filePath: string, content: string) =>
     FileService.writeFileText(filePath, content)
   );
-  ipcMain.handle(IPC_CHANNELS.FILE_GET_STATS, (_event, filePath: string) =>
-    FileService.getFileStats(filePath)
-  );
-  ipcMain.handle(IPC_CHANNELS.FILE_READ_DATA_URL, (_event, filePath: string) =>
-    FileService.readFileDataUrl(filePath)
-  );
+  ipcMain.handle(IPC_CHANNELS.FILE_GET_STATS, (_event, filePath: string) => FileService.getFileStats(filePath));
+  ipcMain.handle(IPC_CHANNELS.FILE_READ_DATA_URL, (_event, filePath: string) => FileService.readFileDataUrl(filePath));
+  ipcMain.handle(IPC_CHANNELS.FILE_CREATE, (_event, filePath: string, content?: string) => FileService.createFile(filePath, content));
+  ipcMain.handle(IPC_CHANNELS.FILE_CREATE_DIR, (_event, folderPath: string) => FileService.createFolder(folderPath));
+  ipcMain.handle(IPC_CHANNELS.FILE_RENAME, (_event, oldPath: string, newPath: string) => FileService.renamePath(oldPath, newPath));
+  ipcMain.handle(IPC_CHANNELS.FILE_TRASH, (_event, targetPath: string) => FileService.trashItem(targetPath));
+  ipcMain.handle(IPC_CHANNELS.FILE_DUPLICATE, (_event, targetPath: string) => FileService.duplicatePath(targetPath));
 
   // Workbench & Editor Session Controls
   ipcMain.handle(IPC_CHANNELS.WORKBENCH_GET_SESSION, (_event, projectId: string) =>

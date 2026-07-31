@@ -1,12 +1,14 @@
 import React, { useEffect } from 'react';
-import { ShieldAlert, X, RotateCcw } from 'lucide-react';
+import { ShieldAlert, RotateCcw } from 'lucide-react';
 import { TitleBar } from './TitleBar';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { CraftedGlow } from '../common/CraftedGlow';
 import { GrainBackground } from '../common/GrainBackground';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useWorkbenchStore } from '../../stores/workbenchStore';
-import { shortcutManager } from '../../services/ShortcutManager';
+import { useShortcutStore } from '../../stores/shortcutStore';
+import { useAISettingsStore } from '../../stores/aiSettingsStore';
+import { useProjectStore } from '../../stores/projectStore';
 
 interface ShellLayoutProps {
   isSafeMode?: boolean;
@@ -14,56 +16,44 @@ interface ShellLayoutProps {
 }
 
 export const ShellLayout: React.FC<ShellLayoutProps> = ({ isSafeMode = false, onDismissSafeMode }) => {
-  const {
-    togglePanelVisibility,
-    toggleBottomPanel,
-  } = useLayoutStore();
+  const { togglePanelVisibility } = useLayoutStore();
+  const { setSettingsOpen, setActiveCategory } = useAISettingsStore();
+  const { openProject } = useProjectStore();
 
-  // Register Global Workspace Shortcuts in Centralized ShortcutManager
+  // Register Global Workspace & Panel Commands in Central Shortcut Store
   useEffect(() => {
-    shortcutManager.register({
-      id: 'toggle-explorer',
-      combo: 'ctrl+1',
-      description: 'Toggle Explorer Panel',
-      handler: () => togglePanelVisibility('explorer'),
-    });
-
-    shortcutManager.register({
-      id: 'toggle-chat',
-      combo: 'ctrl+2',
-      description: 'Toggle Chat Panel',
-      handler: () => togglePanelVisibility('chat'),
-    });
-
-    shortcutManager.register({
-      id: 'toggle-editor',
-      combo: 'ctrl+3',
-      description: 'Toggle Editor Panel',
-      handler: () => togglePanelVisibility('editor'),
-    });
-
-    shortcutManager.register({
-      id: 'toggle-tooldock',
-      combo: 'ctrl+4',
-      description: 'Toggle Tool Dock Panel',
-      handler: () => togglePanelVisibility('tooldock'),
-    });
-
-    shortcutManager.register({
-      id: 'toggle-terminal',
-      combo: 'ctrl+`',
-      description: 'Toggle Integrated Terminal',
-      handler: () => toggleBottomPanel('terminal'),
-    });
+    const registerHandler = useShortcutStore.getState().registerHandler;
+    const unsubs = [
+      registerHandler('panels.toggleExplorer', () => togglePanelVisibility('explorer')),
+      registerHandler('panels.toggleChat', () => togglePanelVisibility('chat')),
+      registerHandler('panels.toggleEditor', () => togglePanelVisibility('editor')),
+      registerHandler('panels.toggleToolDock', () => togglePanelVisibility('tooldock')),
+      registerHandler('workspace.openSettings', () => {
+        setActiveCategory('keyboard-shortcuts');
+        setSettingsOpen(true);
+      }),
+      registerHandler('workspace.openFolder', () => {
+        openProject();
+      }),
+      registerHandler('workspace.toggleFullscreen', () => {
+        if (typeof window !== 'undefined' && window.craftedAPI) {
+          window.craftedAPI.getWindowState().then((state) => {
+            if (state.isMaximized) {
+              window.craftedAPI.restoreWindow();
+            } else {
+              window.craftedAPI.maximizeWindow();
+            }
+          });
+        }
+      }),
+    ];
 
     return () => {
-      shortcutManager.unregister('toggle-explorer');
-      shortcutManager.unregister('toggle-chat');
-      shortcutManager.unregister('toggle-editor');
-      shortcutManager.unregister('toggle-tooldock');
-      shortcutManager.unregister('toggle-terminal');
+      unsubs.forEach((unsub) => {
+        if (typeof unsub === 'function') unsub();
+      });
     };
-  }, [togglePanelVisibility, toggleBottomPanel]);
+  }, [togglePanelVisibility, setSettingsOpen, setActiveCategory, openProject]);
 
   const handleResetSession = () => {
     useWorkbenchStore.getState().closeAllTabs();
@@ -98,21 +88,12 @@ export const ShellLayout: React.FC<ShellLayoutProps> = ({ isSafeMode = false, on
               <RotateCcw className="h-3 w-3" />
               <span>Reset Session</span>
             </button>
-
-            <button
-              onClick={onDismissSafeMode}
-              title="Dismiss banner notice"
-              className="flex items-center space-x-1 rounded-md border border-crafted-border bg-crafted-surface px-2 py-1 text-xs text-crafted-text-dim hover:text-crafted-text transition-colors"
-            >
-              <X className="h-3 w-3" />
-              <span>Dismiss</span>
-            </button>
           </div>
         </div>
       )}
 
-      {/* Main Workspace Layout Shell */}
-      <div className="relative flex-1 flex overflow-hidden z-10">
+      {/* Main Resizable Workspace Grid Engine */}
+      <div className="flex-1 overflow-hidden relative">
         <WorkspaceLayout />
       </div>
     </div>
