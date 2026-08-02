@@ -18,6 +18,10 @@ export class MockProvider implements IAIProvider {
     supportsStreaming: true,
     supportsVision: true,
     supportsTools: true,
+    supportsReasoning: true,
+    supportsEmbeddings: true,
+    supportsJsonMode: true,
+    supportsImageGeneration: false,
   };
 
   private activeModelId = 'mock-gpt-4o';
@@ -64,7 +68,20 @@ export class MockProvider implements IAIProvider {
     messages: AIChatMessage[],
     options?: AIChatCompletionOptions
   ): Promise<AIChatResponse> {
-    return this.generateStreamingCompletion(messages, options);
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || 'Hello';
+    const responseText = `[Mock AI Response] You said: "${lastUserMessage}". This is a simulated response generated locally for testing purposes.`;
+
+    return {
+      content: responseText,
+      modelId: options?.modelId || this.activeModelId,
+      providerId: this.id,
+      usage: {
+        promptTokens: lastUserMessage.length,
+        completionTokens: responseText.length,
+        totalTokens: lastUserMessage.length + responseText.length,
+      },
+      finishReason: 'stop',
+    };
   }
 
   public async generateStreamingCompletion(
@@ -73,53 +90,34 @@ export class MockProvider implements IAIProvider {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal
   ): Promise<AIChatResponse> {
-    const selectedModel = options?.modelId || this.activeModelId;
-    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
-    const userPrompt = lastUserMessage ? lastUserMessage.content : 'Hello';
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || 'Hello';
+    const responseText = `[Mock AI Response] You said: "${lastUserMessage}". This is a simulated response generated locally for testing purposes.`;
 
-    const fullResponse =
-      `[Mock AI Response (${selectedModel})]\n\n` +
-      `Received prompt: "${userPrompt}"\n\n` +
-      `Crafted Studio provider-agnostic AI streaming architecture is active.\n` +
-      `Streaming tokens incrementally to allow testing live cancellation and Stop Generation button interactions.\n` +
-      `Token 1: System initialized.\n` +
-      `Token 2: Context window verified.\n` +
-      `Token 3: Memory & state persisted to SQLite database.\n` +
-      `Token 4: Completion sequence ending successfully.`;
+    const tokens = responseText.split(' ');
+    let accumulated = '';
 
-    const tokens = fullResponse.split(' ');
-    let currentContent = '';
-
-    for (let i = 0; i < tokens.length; i++) {
+    for (const token of tokens) {
       if (signal?.aborted) {
         break;
       }
-
-      const chunk = (i === 0 ? '' : ' ') + tokens[i];
-      currentContent += chunk;
-
+      const chunk = token + ' ';
+      accumulated += chunk;
       if (onToken) {
         onToken(chunk);
       }
-
-      // 120ms delay per token chunk so response streams over ~8 seconds for easy Stop testing
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     }
 
     return {
-      content: currentContent,
-      modelId: selectedModel,
+      content: accumulated,
+      modelId: options?.modelId || this.activeModelId,
       providerId: this.id,
       usage: {
-        promptTokens: Math.ceil(userPrompt.length / 4),
-        completionTokens: Math.ceil(currentContent.length / 4),
-        totalTokens: Math.ceil((userPrompt.length + currentContent.length) / 4),
+        promptTokens: lastUserMessage.length,
+        completionTokens: accumulated.length,
+        totalTokens: lastUserMessage.length + accumulated.length,
       },
       finishReason: signal?.aborted ? 'cancelled' : 'stop',
     };
-  }
-
-  public async dispose(): Promise<void> {
-    // Reset state
   }
 }

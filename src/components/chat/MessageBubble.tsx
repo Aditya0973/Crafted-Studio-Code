@@ -3,6 +3,7 @@ import { User, Bot, Terminal, Copy, Check, ChevronDown, ChevronUp, RefreshCw } f
 import { Message } from '../../shared/types';
 import { useChatStore } from '../../stores/chatStore';
 import { cn } from '../../utils/cn';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 interface MessageBubbleProps {
   message: Message;
@@ -157,8 +158,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
             </div>
           ) : (
             <div className="relative">
-              <div className="text-xs leading-relaxed text-crafted-text whitespace-pre-wrap break-words font-sans">
-                {getDisplayedText()}
+              <div className="text-xs leading-relaxed text-crafted-text break-words font-sans">
+                <MarkdownRenderer content={getDisplayedText()} />
               </div>
 
               {/* Fade Overlay when explicitly collapsed by user */}

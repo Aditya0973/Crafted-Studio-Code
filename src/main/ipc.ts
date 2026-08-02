@@ -1,11 +1,24 @@
-import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
-import { IPC_CHANNELS, AppSettings, WindowState, CreateProjectInput, ImportProjectInput, ExplorerScanOptions, CreateMessageInput, TabItem, AISettings, BootstrapState } from '../shared/types';
+import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
+import {
+  IPC_CHANNELS,
+  BootstrapState,
+  WindowState,
+  AppSettings,
+  CreateProjectInput,
+  ImportProjectInput,
+  ExplorerScanOptions,
+  CreateMessageInput,
+  TabItem,
+  AISettings,
+  ModelProfile,
+  AgentDefinition,
+} from '../shared/types';
+import { ProjectService } from '../services/ProjectService';
 import { SettingsService } from '../services/SettingsService';
 import { WindowService } from '../services/WindowService';
-import { ProjectService } from '../services/ProjectService';
 import { ExplorerService } from '../services/ExplorerService';
-import { ChatService } from '../services/ChatService';
 import { FileService } from '../services/FileService';
+import { ChatService } from '../services/ChatService';
 import { WorkbenchService } from '../services/WorkbenchService';
 import { AISettingsService } from '../services/AISettingsService';
 import { ProviderManager } from '../ai/ProviderManager';
@@ -14,8 +27,9 @@ import { ProjectDetectorService } from '../services/ProjectDetectorService';
 import { GitService } from '../services/GitService';
 import { ToolDockService } from '../services/ToolDockService';
 import { Win32WindowService } from '../services/Win32WindowService';
-
-
+import { ApiKeySecurityService } from '../services/ApiKeySecurityService';
+import { ModelProfileService } from '../services/ModelProfileService';
+import { AgentService } from '../services/AgentService';
 
 export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   // Bootstrap State Initialization Handshake
@@ -27,6 +41,8 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
     const activeProject = await ProjectService.getActiveProject();
     const recentProjects = await ProjectService.getRecentProjects();
     const providerStatuses = await ProviderManager.getProviderStatuses();
+    const modelProfiles = ModelProfileService.getModelProfiles();
+    const agents = AgentService.getAgents();
 
     return {
       isReady: true,
@@ -35,14 +51,16 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
       activeProject,
       recentProjects,
       providerStatuses,
+      modelProfiles,
+      agents,
     };
   });
 
-  // Window Controls
+  // Window Management Controls
   ipcMain.handle(IPC_CHANNELS.WINDOW_MINIMIZE, () => mainWindow?.minimize());
   ipcMain.handle(IPC_CHANNELS.WINDOW_MAXIMIZE, () => {
     if (mainWindow?.isMaximized()) {
-      mainWindow.restore();
+      mainWindow.unmaximize();
     } else {
       mainWindow?.maximize();
     }
@@ -54,53 +72,25 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
     WindowService.saveLayoutState(state)
   );
 
-  // Settings Controls
+  // App Settings Controls
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => SettingsService.getSettings());
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET, (_event, key: keyof AppSettings, value: unknown) =>
     SettingsService.setSetting(key, value)
   );
 
-  // Project Controls with Robust Folder Picker Dialog Fallback
-  ipcMain.handle(IPC_CHANNELS.PROJECT_CREATE, (_event, input: CreateProjectInput) => {
-    console.log('[IPC] -> [Main] -> [ProjectService] createProject:', input.name);
-    return ProjectService.createProject(input);
-  });
-  ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async (_event, projectPath?: string) => {
-    console.log(`[IPC] -> [Main] openProject requested for path: "${projectPath || 'dialog'}"`);
-    try {
-      let targetPath = projectPath;
-      if (!targetPath && mainWindow) {
-        const dialogResult = await dialog.showOpenDialog(mainWindow, {
-          properties: ['openDirectory', 'createDirectory'],
-          title: 'Select Project Directory',
-        });
-        if (dialogResult.canceled || dialogResult.filePaths.length === 0) {
-          console.log('[Main] openProject folder dialog canceled');
-          return null;
-        }
-        targetPath = dialogResult.filePaths[0];
-      }
-
-      if (!targetPath) {
-        throw new Error('Project path must be provided');
-      }
-
-      const res = await ProjectService.openProject(targetPath);
-      console.log(`[Main] -> [ProjectService] openProject SUCCESS:`, 'isImportRequired' in res ? `Import Required (${res.folderName})` : `Loaded Project (${res.name})`);
-      return res;
-    } catch (err) {
-      console.error(`[Main] -> [ProjectService] openProject FAIL:`, err);
-      throw err;
-    }
-  });
-  ipcMain.handle(IPC_CHANNELS.PROJECT_IMPORT, (_event, input: ImportProjectInput) => {
-    console.log('[IPC] -> [Main] -> [ProjectService] importProject:', input.name);
-    return ProjectService.importProject(input);
-  });
-  ipcMain.handle(IPC_CHANNELS.PROJECT_SWITCH, (_event, projectId: string) => {
-    console.log('[IPC] -> [Main] -> [ProjectService] switchProject:', projectId);
-    return ProjectService.switchProject(projectId);
-  });
+  // Project Management Controls
+  ipcMain.handle(IPC_CHANNELS.PROJECT_CREATE, (_event, input: CreateProjectInput) =>
+    ProjectService.createProject(input)
+  );
+  ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, (_event, projectPath?: string) =>
+    ProjectService.openProject(projectPath)
+  );
+  ipcMain.handle(IPC_CHANNELS.PROJECT_IMPORT, (_event, input: ImportProjectInput) =>
+    ProjectService.importProject(input)
+  );
+  ipcMain.handle(IPC_CHANNELS.PROJECT_SWITCH, (_event, projectId: string) =>
+    ProjectService.switchProject(projectId)
+  );
   ipcMain.handle(IPC_CHANNELS.PROJECT_GET_ACTIVE, () => ProjectService.getActiveProject());
   ipcMain.handle(IPC_CHANNELS.PROJECT_LIST_RECENT, () => ProjectService.getRecentProjects());
   ipcMain.handle(IPC_CHANNELS.PROJECT_DELETE, (_event, projectId: string) =>
@@ -202,6 +192,69 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
     (_event, providerId: string, baseUrl?: string) =>
       ProviderManager.testConnection(providerId as any, baseUrl)
   );
+  ipcMain.handle(IPC_CHANNELS.AI_GET_SECURITY_STATUS, () => ({
+    isSafeStorageAvailable: ApiKeySecurityService.isSafeStorageAvailable(),
+  }));
+  ipcMain.handle(
+    IPC_CHANNELS.AI_SAVE_PROVIDER_KEY,
+    (_event, providerId: string, apiKey: string, mode?: 'safeStorage' | 'sessionOnly' | 'unencryptedOptIn') => {
+      if (mode === 'sessionOnly') {
+        ApiKeySecurityService.setSessionKey(providerId, apiKey);
+        return true;
+      }
+      if (mode === 'unencryptedOptIn') {
+        const current = AISettingsService.getAISettings();
+        const existingConfig = current.providersConfig?.[providerId] || {
+          providerId,
+          name: providerId,
+          isEnabled: true,
+        };
+        existingConfig.apiKey = 'unencrypted:' + apiKey;
+        existingConfig.unencryptedOptIn = true;
+        return AISettingsService.saveAISettings({
+          providersConfig: { ...current.providersConfig, [providerId]: existingConfig },
+        });
+      }
+      // Default: safeStorage
+      const encrypted = ApiKeySecurityService.encryptApiKey(apiKey);
+      if (!encrypted) return false;
+
+      const current = AISettingsService.getAISettings();
+      const existingConfig = current.providersConfig?.[providerId] || {
+        providerId,
+        name: providerId,
+        isEnabled: true,
+      };
+      existingConfig.apiKey = encrypted;
+      return AISettingsService.saveAISettings({
+        providersConfig: { ...current.providersConfig, [providerId]: existingConfig },
+      });
+    }
+  );
+  ipcMain.handle(IPC_CHANNELS.AI_GET_PROVIDER_KEY, (_event, providerId: string) => {
+    const sessionKey = ApiKeySecurityService.getSessionKey(providerId);
+    if (sessionKey) return sessionKey;
+
+    const current = AISettingsService.getAISettings();
+    const stored = current.providersConfig?.[providerId]?.apiKey;
+    return ApiKeySecurityService.decryptApiKey(stored);
+  });
+
+  // Model Profiles Handlers (Milestone 4)
+  ipcMain.handle(IPC_CHANNELS.MODEL_PROFILES_GET_ALL, () => ModelProfileService.getModelProfiles());
+  ipcMain.handle(IPC_CHANNELS.MODEL_PROFILES_SAVE, (_event, profile: Partial<ModelProfile>) =>
+    ModelProfileService.saveModelProfile(profile)
+  );
+  ipcMain.handle(IPC_CHANNELS.MODEL_PROFILES_DELETE, (_event, id: string) =>
+    ModelProfileService.deleteModelProfile(id)
+  );
+
+  // Agents Handlers (Milestone 4)
+  ipcMain.handle(IPC_CHANNELS.AGENTS_GET_ALL, () => AgentService.getAgents());
+  ipcMain.handle(IPC_CHANNELS.AGENTS_SAVE, (_event, agent: Partial<AgentDefinition>) =>
+    AgentService.saveAgent(agent)
+  );
+  ipcMain.handle(IPC_CHANNELS.AGENTS_DELETE, (_event, id: string) => AgentService.deleteAgent(id));
 
   // Terminal PTY Handlers
   ipcMain.handle(
@@ -230,21 +283,21 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   });
 
   // Project Detector & Custom Run Configuration Handlers
-  ipcMain.handle(IPC_CHANNELS.PROJECT_DETECT_CONFIG, (_event, projectPath: string) =>
+  ipcMain.handle(IPC_CHANNELS.DETECT_PROJECT_CONFIG, (_event, projectPath: string) =>
     ProjectDetectorService.getInstance().detectProjectConfig(projectPath)
   );
-  ipcMain.handle(IPC_CHANNELS.PROJECT_SAVE_CONFIG, (_event, projectPath: string, config: any) =>
+  ipcMain.handle(IPC_CHANNELS.SAVE_PROJECT_CONFIG, (_event, projectPath: string, config: any) =>
     ProjectDetectorService.getInstance().saveProjectConfig(projectPath, config)
   );
 
   // Git Handlers
-  ipcMain.handle(IPC_CHANNELS.GIT_GET_INFO, (_event, projectPath: string) =>
+  ipcMain.handle(IPC_CHANNELS.GET_GIT_INFO, (_event, projectPath: string) =>
     GitService.getInstance().getGitInfo(projectPath)
   );
-  ipcMain.handle(IPC_CHANNELS.GIT_SET_REMOTE, (_event, projectPath: string, repoUrl: string) =>
+  ipcMain.handle(IPC_CHANNELS.SET_GIT_REMOTE, (_event, projectPath: string, repoUrl: string) =>
     GitService.getInstance().setRemoteUrl(projectPath, repoUrl)
   );
-  ipcMain.handle(IPC_CHANNELS.GIT_GET_NEXT_COMMIT_MSG, (_event, projectPath: string, userMsg?: string) =>
+  ipcMain.handle(IPC_CHANNELS.GET_GIT_NEXT_COMMIT_MSG, (_event, projectPath: string, userMsg?: string) =>
     GitService.getInstance().getNextCommitMessage(projectPath, userMsg)
   );
 
@@ -258,7 +311,7 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_REORDER_ITEMS, (_event, orderedIds: string[]) =>
     ToolDockService.reorderTools(orderedIds)
   );
-  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_LAUNCH_APP, (_event, target: string, type: any, name?: string) =>
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_LAUNCH_TOOL, (_event, target: string, type: any, name?: string) =>
     ToolDockService.launchTool(target, type, name)
   );
 
@@ -272,12 +325,9 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
     return false;
   });
 
-  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_OPEN_EXTERNAL, async (_event, url: string) => {
-
-
+  ipcMain.handle(IPC_CHANNELS.TOOL_DOCK_OPEN_EXTERNAL_URL, async (_event, url: string) => {
     if (!url) return false;
     await shell.openExternal(url);
     return true;
   });
 }
-

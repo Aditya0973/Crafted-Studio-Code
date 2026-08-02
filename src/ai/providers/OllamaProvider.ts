@@ -9,7 +9,7 @@ import {
   AIChatCompletionOptions,
   AIChatResponse,
 } from '../types';
-import { ProviderUnavailableError, InvalidModelError } from '../errors';
+import { ModelCacheManager } from '../ModelCacheManager';
 
 export class OllamaProvider implements IAIProvider {
   public id: AIProviderId = 'ollama';
@@ -18,15 +18,28 @@ export class OllamaProvider implements IAIProvider {
     supportsChat: true,
     supportsStreaming: true,
     supportsVision: false,
-    supportsTools: false,
+    supportsTools: true,
+    supportsReasoning: false,
+    supportsEmbeddings: true,
+    supportsJsonMode: true,
+    supportsImageGeneration: false,
   };
 
-  private baseUrl = 'http://localhost:11434';
-  private activeModelId = '';
+  private baseUrl = 'http://127.0.0.1:11434';
+  private activeModelId = 'qwen2.5:7b';
+
+  private normalizeUrl(url?: string): string {
+    if (!url) return 'http://127.0.0.1:11434';
+    let clean = url.trim().replace(/\/+$/, '');
+    if (clean.includes('localhost')) {
+      clean = clean.replace('localhost', '127.0.0.1');
+    }
+    return clean;
+  }
 
   public async initialize(config?: AIProviderConfig): Promise<void> {
     if (config?.baseUrl) {
-      this.baseUrl = config.baseUrl.replace(/\/+$/, '');
+      this.baseUrl = this.normalizeUrl(config.baseUrl);
     }
     if (config?.activeModelId) {
       this.activeModelId = config.activeModelId;
@@ -34,20 +47,25 @@ export class OllamaProvider implements IAIProvider {
   }
 
   public async isAvailable(): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const urlsToTry = [this.baseUrl, 'http://127.0.0.1:11434', 'http://localhost:11434'];
+    for (const targetUrl of urlsToTry) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-      const res = await fetch(`${this.baseUrl}/api/tags`, {
-        method: 'GET',
-        signal: controller.signal,
-      });
+        const res = await fetch(`${targetUrl}/api/tags`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
 
-      clearTimeout(timeoutId);
-      return res.ok;
-    } catch {
-      return false;
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          this.baseUrl = targetUrl;
+          return true;
+        }
+      } catch {}
     }
+    return false;
   }
 
   public async getStatus(): Promise<AIProviderStatus> {
@@ -62,52 +80,94 @@ export class OllamaProvider implements IAIProvider {
   }
 
   public async listModels(): Promise<AIModel[]> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const urlsToTry = [this.baseUrl, 'http://127.0.0.1:11434', 'http://localhost:11434'];
+    for (const targetUrl of urlsToTry) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const res = await fetch(`${this.baseUrl}/api/tags`, {
-        method: 'GET',
-        signal: controller.signal,
-      });
+        const res = await fetch(`${targetUrl}/api/tags`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
 
-      clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        return [];
-      }
+        if (res.ok) {
+          const data = (await res.json()) as {
+            models?: Array<{
+              name: string;
+              model?: string;
+              size?: number;
+              modified_at?: string;
+            }>;
+          };
 
-      const data = (await res.json()) as {
-        models?: Array<{
-          name: string;
-          model?: string;
-          size?: number;
-          modified_at?: string;
-        }>;
-      };
+          if (data.models && Array.isArray(data.models) && data.models.length > 0) {
+            const models: AIModel[] = data.models.map((m) => ({
+              id: m.name || m.model || '',
+              name: m.name || m.model || 'Unknown Model',
+              providerId: this.id,
+              contextWindowTokens: 8192,
+              capabilities: this.capabilities,
+            }));
 
-      if (!data.models || !Array.isArray(data.models)) {
-        return [];
-      }
-
-      return data.models.map((m) => ({
-        id: m.name || m.model || '',
-        name: m.name || m.model || 'Unknown Model',
-        providerId: this.id,
-        contextWindowTokens: 8192,
-        capabilities: this.capabilities,
-      }));
-    } catch (err) {
-      console.error('[OllamaProvider] Error listing models:', err);
-      return [];
+            this.baseUrl = targetUrl;
+            ModelCacheManager.setCachedModels(this.id, models);
+            return models;
+          }
+        }
+      } catch {}
     }
+
+    return ModelCacheManager.getCachedModels(this.id);
   }
 
   public async generateChatCompletion(
     messages: AIChatMessage[],
     options?: AIChatCompletionOptions
   ): Promise<AIChatResponse> {
-    return this.generateStreamingCompletion(messages, options);
+    const targetModel = options?.modelId || this.activeModelId || 'qwen2.5:7b';
+
+    const res = await fetch(`${this.baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: targetModel,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        stream: false,
+        options: {
+          temperature: options?.temperature ?? 0.7,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Ollama API error (${res.status}): ${errText}`);
+    }
+
+    const data = (await res.json()) as {
+      message?: { content: string };
+      prompt_eval_count?: number;
+      eval_count?: number;
+    };
+
+    const content = data.message?.content || '';
+    const promptTokens = data.prompt_eval_count || 0;
+    const completionTokens = data.eval_count || 0;
+
+    return {
+      content,
+      modelId: targetModel,
+      providerId: this.id,
+      usage: {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+      },
+      finishReason: 'stop',
+    };
   }
 
   public async generateStreamingCompletion(
@@ -116,125 +176,90 @@ export class OllamaProvider implements IAIProvider {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal
   ): Promise<AIChatResponse> {
-    const available = await this.isAvailable();
-    if (!available) {
-      throw new ProviderUnavailableError(this.id, `Ollama server is not running or unreachable at ${this.baseUrl}`);
+    const targetModel = options?.modelId || this.activeModelId || 'qwen2.5:7b';
+
+    const res = await fetch(`${this.baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: targetModel,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        stream: true,
+        options: {
+          temperature: options?.temperature ?? 0.7,
+        },
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Ollama API error (${res.status}): ${errText}`);
     }
 
-    const availableModels = await this.listModels();
-    let targetModel = options?.modelId || this.activeModelId;
-
-    if (!targetModel && availableModels.length > 0) {
-      targetModel = availableModels[0].id;
+    if (!res.body) {
+      throw new Error('Response body is null');
     }
 
-    if (!targetModel) {
-      throw new InvalidModelError(this.id, 'No installed Ollama models found. Please pull a model using `ollama run llama3`.');
-    }
-
-    const formattedMessages = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedContent = '';
+    let promptTokens = 0;
+    let completionTokens = 0;
 
     try {
-      const res = await fetch(`${this.baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: targetModel,
-          messages: formattedMessages,
-          stream: true,
-          options: {
-            temperature: options?.temperature ?? 0.7,
-          },
-        }),
-        signal,
-      });
+      while (true) {
+        if (signal?.aborted) {
+          break;
+        }
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Ollama API error (${res.status}): ${errText}`);
-      }
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      let fullText = '';
-      let promptTokens = 0;
-      let completionTokens = 0;
-      let finishReason = 'stop';
+        const chunkText = decoder.decode(value, { stream: true });
+        const lines = chunkText.split('\n').filter((l) => l.trim().length > 0);
 
-      if (res.body) {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line) as {
+              message?: { content?: string };
+              prompt_eval_count?: number;
+              eval_count?: number;
+              done?: boolean;
+            };
 
-        while (true) {
-          if (signal?.aborted) {
-            reader.cancel();
-            break;
-          }
-
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-
-            try {
-              const data = JSON.parse(trimmed) as {
-                message?: { content: string };
-                prompt_eval_count?: number;
-                eval_count?: number;
-                done_reason?: string;
-                done?: boolean;
-              };
-
-              if (data.message?.content) {
-                fullText += data.message.content;
-                if (onToken) {
-                  onToken(data.message.content);
-                }
+            if (parsed.message?.content) {
+              accumulatedContent += parsed.message.content;
+              if (onToken) {
+                onToken(parsed.message.content);
               }
-
-              if (data.prompt_eval_count) promptTokens = data.prompt_eval_count;
-              if (data.eval_count) completionTokens = data.eval_count;
-              if (data.done_reason) finishReason = data.done_reason;
-            } catch {
-              // Skip malformed line
             }
+
+            if (parsed.prompt_eval_count) promptTokens = parsed.prompt_eval_count;
+            if (parsed.eval_count) completionTokens = parsed.eval_count;
+          } catch {
+            // Ignore incomplete JSON line chunks
           }
         }
       }
-
-      return {
-        content: fullText,
-        modelId: targetModel,
-        providerId: this.id,
-        usage: {
-          promptTokens,
-          completionTokens,
-          totalTokens: promptTokens + completionTokens,
-        },
-        finishReason,
-      };
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return {
-          content: '',
-          modelId: targetModel,
-          providerId: this.id,
-          finishReason: 'cancelled',
-        };
+    } catch (err: any) {
+      if (err.name === 'AbortError' || signal?.aborted) {
+        console.log('[OllamaProvider] Stream aborted by user signal.');
+      } else {
+        throw err;
       }
-      throw err;
     }
-  }
 
-  public async dispose(): Promise<void> {
-    // Reset connection
+    return {
+      content: accumulatedContent,
+      modelId: targetModel,
+      providerId: this.id,
+      usage: {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+      },
+      finishReason: signal?.aborted ? 'cancelled' : 'stop',
+    };
   }
 }

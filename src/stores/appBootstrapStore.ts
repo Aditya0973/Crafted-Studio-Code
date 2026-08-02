@@ -69,6 +69,9 @@ export const useAppBootstrapStore = create<AppBootstrapState>((set, get) => ({
         useAISettingsStore.setState({
           aiSettings: bootstrapData.aiSettings,
           providerStatuses: bootstrapData.providerStatuses as any,
+          modelProfiles: bootstrapData.modelProfiles || [],
+          agents: bootstrapData.agents || [],
+          activeAgentId: bootstrapData.agents?.[0]?.id || 'agent-architect',
           isLoading: false,
         });
 

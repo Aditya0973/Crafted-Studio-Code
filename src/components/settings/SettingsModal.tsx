@@ -1,18 +1,22 @@
-import React from 'react';
-import { X, Sliders, Cpu, LayoutGrid, Info, Keyboard } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Sliders, Cpu, LayoutGrid, Info, Keyboard, Layers, Bot } from 'lucide-react';
 import { useAISettingsStore } from '../../stores/aiSettingsStore';
 import { AIProvidersSettings } from './AIProvidersSettings';
+import { ModelProfilesSettings } from './ModelProfilesSettings';
+import { AgentsSettings } from './AgentsSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 
 export const SettingsModal: React.FC = () => {
   const { isSettingsOpen, activeCategory, setSettingsOpen, setActiveCategory } =
     useAISettingsStore();
 
+  const [aiSubTab, setAiSubTab] = useState<'providers' | 'profiles' | 'agents'>('providers');
+
   if (!isSettingsOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in select-none font-sans">
-      <div className="relative flex h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-crafted-border bg-crafted-panel shadow-2xl">
+      <div className="relative flex h-[85vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-crafted-border bg-crafted-panel shadow-2xl">
         {/* Settings Category Navigation Sidebar */}
         <div className="w-56 flex flex-col border-r border-crafted-border/60 bg-crafted-surface/40 p-3 space-y-1 font-sans">
           <div className="px-3 py-2 text-sm font-bold text-crafted-text flex items-center space-x-2 border-b border-crafted-border/40 mb-2">
@@ -20,30 +24,20 @@ export const SettingsModal: React.FC = () => {
             <span>Settings</span>
           </div>
 
-          <button
-            onClick={() => setActiveCategory('general')}
-            className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-              activeCategory === 'general'
-                ? 'bg-crafted-surface text-crafted-text border border-crafted-border-bright font-semibold'
-                : 'text-crafted-text-muted hover:bg-crafted-surface-hover/70 hover:text-crafted-text'
-            }`}
-          >
-            <Sliders className="h-4 w-4 text-crafted-text-dim" />
-            <span>General</span>
-          </button>
-
+          {/* AI Settings (Consolidated Single Category) */}
           <button
             onClick={() => setActiveCategory('ai-providers')}
             className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-              activeCategory === 'ai-providers'
+              activeCategory === 'ai-providers' || activeCategory === 'model-profiles' || activeCategory === 'agents'
                 ? 'bg-crafted-surface text-crafted-text border border-crafted-brand-rust font-semibold shadow-sm'
                 : 'text-crafted-text-muted hover:bg-crafted-surface-hover/70 hover:text-crafted-text'
             }`}
           >
             <Cpu className="h-4 w-4 text-crafted-brand-rust" />
-            <span>AI Providers</span>
+            <span>AI Settings</span>
           </button>
 
+          {/* Keyboard Shortcuts */}
           <button
             onClick={() => setActiveCategory('keyboard-shortcuts' as any)}
             className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
@@ -56,6 +50,22 @@ export const SettingsModal: React.FC = () => {
             <span>Keyboard Shortcuts</span>
           </button>
 
+          <div className="pt-2 border-t border-crafted-border/30 my-2" />
+
+          {/* General (Grey / Placeholder) */}
+          <button
+            onClick={() => setActiveCategory('general')}
+            className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+              activeCategory === 'general'
+                ? 'bg-crafted-surface text-crafted-text border border-crafted-border-bright font-semibold'
+                : 'text-crafted-text-muted hover:bg-crafted-surface-hover/70 hover:text-crafted-text'
+            }`}
+          >
+            <Sliders className="h-4 w-4 text-crafted-text-dim" />
+            <span>General</span>
+          </button>
+
+          {/* Workspace (Grey / Placeholder) */}
           <button
             onClick={() => setActiveCategory('workspace')}
             className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
@@ -68,6 +78,7 @@ export const SettingsModal: React.FC = () => {
             <span>Workspace</span>
           </button>
 
+          {/* About (Grey / Placeholder) */}
           <button
             onClick={() => setActiveCategory('about')}
             className={`flex items-center space-x-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
@@ -90,7 +101,7 @@ export const SettingsModal: React.FC = () => {
           {/* Header Bar */}
           <div className="flex items-center justify-between border-b border-crafted-border/60 px-6 py-4">
             <span className="font-mono text-xs uppercase tracking-wider text-crafted-text-dim">
-              Preferences // {activeCategory}
+              Preferences // {activeCategory === 'ai-providers' || activeCategory === 'model-profiles' || activeCategory === 'agents' ? 'AI Settings' : activeCategory}
             </span>
             <button
               onClick={() => setSettingsOpen(false)}
@@ -100,9 +111,57 @@ export const SettingsModal: React.FC = () => {
             </button>
           </div>
 
+          {/* Sub-tabs for AI Settings */}
+          {(activeCategory === 'ai-providers' || activeCategory === 'model-profiles' || activeCategory === 'agents') && (
+            <div className="flex items-center space-x-2 px-6 pt-4 border-b border-crafted-border/40 font-mono text-xs">
+              <button
+                onClick={() => setAiSubTab('providers')}
+                className={`flex items-center space-x-2 py-2 px-3 rounded-t-xl border-b-2 font-bold transition-all ${
+                  aiSubTab === 'providers'
+                    ? 'border-crafted-brand-rust text-crafted-text bg-crafted-surface/50'
+                    : 'border-transparent text-crafted-text-dim hover:text-crafted-text'
+                }`}
+              >
+                <Cpu className="h-3.5 w-3.5 text-crafted-brand-rust" />
+                <span>Providers & Keys</span>
+              </button>
+
+              <button
+                onClick={() => setAiSubTab('profiles')}
+                className={`flex items-center space-x-2 py-2 px-3 rounded-t-xl border-b-2 font-bold transition-all ${
+                  aiSubTab === 'profiles'
+                    ? 'border-crafted-brand-rust text-crafted-text bg-crafted-surface/50'
+                    : 'border-transparent text-crafted-text-dim hover:text-crafted-text'
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5 text-amber-400" />
+                <span>Model Profiles</span>
+              </button>
+
+              <button
+                onClick={() => setAiSubTab('agents')}
+                className={`flex items-center space-x-2 py-2 px-3 rounded-t-xl border-b-2 font-bold transition-all ${
+                  aiSubTab === 'agents'
+                    ? 'border-crafted-brand-rust text-crafted-text bg-crafted-surface/50'
+                    : 'border-transparent text-crafted-text-dim hover:text-crafted-text'
+                }`}
+              >
+                <Bot className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Agents & Prompts</span>
+              </button>
+            </div>
+          )}
+
           {/* Body Content Container */}
           <div className="flex-1 overflow-y-auto p-6">
-            {activeCategory === 'ai-providers' && <AIProvidersSettings />}
+            {(activeCategory === 'ai-providers' || activeCategory === 'model-profiles' || activeCategory === 'agents') && (
+              <>
+                {aiSubTab === 'providers' && <AIProvidersSettings />}
+                {aiSubTab === 'profiles' && <ModelProfilesSettings />}
+                {aiSubTab === 'agents' && <AgentsSettings />}
+              </>
+            )}
+
             {activeCategory === ('keyboard-shortcuts' as any) && <ShortcutSettings />}
 
             {activeCategory === 'general' && (

@@ -35,11 +35,51 @@ export interface AppSettings {
   activeProjectId?: string;
 }
 
+export interface ProviderConfigData {
+  providerId: string;
+  name: string;
+  isEnabled: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+  activeModelId?: string;
+  unencryptedOptIn?: boolean;
+  [key: string]: unknown;
+}
+
 export interface AISettings {
   activeProviderId: string;
   ollamaBaseUrl: string;
   ollamaActiveModel: string;
   enabledProviders: string[];
+  providersConfig: Record<string, ProviderConfigData>;
+  keyStorageMode?: 'safeStorage' | 'sessionOnly' | 'unencryptedOptIn';
+  defaultProfileId?: string;
+  activeAgentId?: string;
+}
+
+export interface ModelProfile {
+  id: string;
+  name: string;
+  providerId: string;
+  modelId: string;
+  temperature: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+  isDefault?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  systemPrompt: string;
+  profileId: string;
+  isPreset: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProjectConfig {
@@ -74,6 +114,15 @@ export interface Project {
   isMissing?: boolean;
 }
 
+export interface ImportProposal {
+  isImportRequired: true;
+  projectPath: string;
+  folderName: string;
+  detectedType: string;
+}
+
+export type OpenProjectResult = Project | ImportProposal;
+
 export interface RecentProject {
   id: string;
   projectId: string;
@@ -101,17 +150,6 @@ export interface ImportProjectInput {
   selectedModules?: string[];
 }
 
-export interface ImportProposal {
-  isImportRequired: true;
-  projectPath: string;
-  folderName: string;
-  detectedType: string;
-}
-
-export type OpenProjectResult = Project | ImportProposal;
-
-export type TreeNodeType = 'file' | 'directory';
-
 export interface TreeNodeMetadata {
   gitStatus?: 'modified' | 'added' | 'deleted' | 'untracked' | 'ignored';
   isAiContext?: boolean;
@@ -121,6 +159,8 @@ export interface TreeNodeMetadata {
   updatedAt?: string;
   [key: string]: unknown;
 }
+
+export type TreeNodeType = 'file' | 'directory';
 
 export interface TreeNode {
   id: string;
@@ -153,6 +193,8 @@ export interface MessageMetadata {
   error?: string;
   agentId?: string;
   agentName?: string;
+  profileId?: string;
+  profileName?: string;
   [key: string]: unknown;
 }
 
@@ -182,7 +224,6 @@ export interface CreateMessageInput {
   metadata?: MessageMetadata;
 }
 
-// Workbench & Editor Registry Types
 export type EditorType = 'monaco' | 'text-viewer' | 'image-viewer' | 'unknown';
 
 export interface EditorDefinition {
@@ -253,6 +294,8 @@ export interface BootstrapState {
   activeProject: Project | null;
   recentProjects: RecentProject[];
   providerStatuses: unknown[];
+  modelProfiles?: ModelProfile[];
+  agents?: AgentDefinition[];
 }
 
 export interface TerminalSessionMeta {
@@ -269,8 +312,10 @@ export const IPC_CHANNELS = {
   WINDOW_CLOSE: 'window:close',
   WINDOW_GET_STATE: 'window:get-state',
   WINDOW_SAVE_LAYOUT: 'window:save-layout',
+
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+
   PROJECT_CREATE: 'project:create',
   PROJECT_OPEN: 'project:open',
   PROJECT_IMPORT: 'project:import',
@@ -280,43 +325,66 @@ export const IPC_CHANNELS = {
   PROJECT_DELETE: 'project:delete',
   PROJECT_UPDATE_WORKFLOW: 'project:update-workflow',
   PROJECT_OPEN_FOLDER: 'project:open-folder',
-  DIALOG_SELECT_FOLDER: 'dialog:select-folder',
+
   EXPLORER_SCAN: 'explorer:scan',
   EXPLORER_GET_EXPANDED: 'explorer:get-expanded',
   EXPLORER_SAVE_EXPANDED: 'explorer:save-expanded',
+
   CHAT_GET_CONVERSATION: 'chat:get-conversation',
   CHAT_GET_MESSAGES: 'chat:get-messages',
   CHAT_SEND_MESSAGE: 'chat:send-message',
   CHAT_CANCEL_GENERATION: 'chat:cancel-generation',
   CHAT_CLEAR_CONVERSATION: 'chat:clear-conversation',
+  CHAT_STREAM_START: 'chat:stream-start',
+  CHAT_STREAM_TOKEN: 'chat:stream-token',
+  CHAT_STREAM_END: 'chat:stream-end',
+
   FILE_READ_TEXT: 'file:read-text',
   FILE_WRITE_TEXT: 'file:write-text',
   FILE_GET_STATS: 'file:get-stats',
   FILE_READ_DATA_URL: 'file:read-data-url',
+
   WORKBENCH_GET_SESSION: 'workbench:get-session',
   WORKBENCH_SAVE_SESSION: 'workbench:save-session',
+
   AI_GET_SETTINGS: 'ai:get-settings',
   AI_SAVE_SETTINGS: 'ai:save-settings',
   AI_GET_STATUSES: 'ai:get-statuses',
   AI_LIST_MODELS: 'ai:list-models',
   AI_TEST_CONNECTION: 'ai:test-connection',
+  AI_GET_SECURITY_STATUS: 'ai:get-security-status',
+  AI_SAVE_PROVIDER_KEY: 'ai:save-provider-key',
+  AI_GET_PROVIDER_KEY: 'ai:get-provider-key',
+
+  MODEL_PROFILES_GET_ALL: 'model-profiles:get-all',
+  MODEL_PROFILES_SAVE: 'model-profiles:save',
+  MODEL_PROFILES_DELETE: 'model-profiles:delete',
+
+  AGENTS_GET_ALL: 'agents:get-all',
+  AGENTS_SAVE: 'agents:save',
+  AGENTS_DELETE: 'agents:delete',
+
   TERMINAL_CREATE: 'terminal:create',
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_CLOSE: 'terminal:close',
-  PROJECT_DETECT_CONFIG: 'project:detect-config',
-  PROJECT_SAVE_CONFIG: 'project:save-config',
-  GIT_GET_INFO: 'git:get-info',
-  GIT_SET_REMOTE: 'git:set-remote',
-  GIT_GET_NEXT_COMMIT_MSG: 'git:get-next-commit-msg',
+
+  DIALOG_SELECT_FOLDER: 'dialog:select-folder',
+
+  DETECT_PROJECT_CONFIG: 'detect-project-config',
+  SAVE_PROJECT_CONFIG: 'save-project-config',
+  GET_GIT_INFO: 'get-git-info',
+  SET_GIT_REMOTE: 'set-git-remote',
+  GET_GIT_NEXT_COMMIT_MSG: 'get-git-next-commit-msg',
+
   TOOL_DOCK_GET_ITEMS: 'tool-dock:get-items',
   TOOL_DOCK_ADD_ITEM: 'tool-dock:add-item',
   TOOL_DOCK_UPDATE_ITEM: 'tool-dock:update-item',
   TOOL_DOCK_DELETE_ITEM: 'tool-dock:delete-item',
   TOOL_DOCK_REORDER_ITEMS: 'tool-dock:reorder-items',
-  TOOL_DOCK_LAUNCH_APP: 'tool-dock:launch-app',
+  TOOL_DOCK_LAUNCH_TOOL: 'tool-dock:launch-tool',
   TOOL_DOCK_SELECT_EXECUTABLE: 'tool-dock:select-executable',
-  TOOL_DOCK_OPEN_EXTERNAL: 'tool-dock:open-external',
+  TOOL_DOCK_OPEN_EXTERNAL_URL: 'tool-dock:open-external-url',
   TOOL_DOCK_GET_DISCOVERED_APPS: 'tool-dock:get-discovered-apps',
   TOOL_DOCK_ARRANGE_WORKSPACE: 'tool-dock:arrange-workspace',
   FILE_CREATE: 'file:create',
@@ -325,7 +393,6 @@ export const IPC_CHANNELS = {
   FILE_TRASH: 'file:trash',
   FILE_DUPLICATE: 'file:duplicate',
 } as const;
-
 
 export * from './toolDock';
 
@@ -372,7 +439,16 @@ export interface ICcraftedAPI {
   saveAISettings: (settings: Partial<AISettings>) => Promise<boolean>;
   getAIStatuses: () => Promise<unknown[]>;
   listAIModels: (providerId: string) => Promise<unknown[]>;
-  testAIConnection: (providerId: string, baseUrl?: string) => Promise<{ isAvailable: boolean; error?: string }>;
+  testAIConnection: (providerId: string, baseUrl?: string) => Promise<{ isAvailable: boolean; success: boolean; error?: string }>;
+  getAISecurityStatus: () => Promise<{ isSafeStorageAvailable: boolean }>;
+  saveAIProviderKey: (providerId: string, apiKey: string, mode?: 'safeStorage' | 'sessionOnly' | 'unencryptedOptIn') => Promise<boolean>;
+  getAIProviderKey: (providerId: string) => Promise<string | null>;
+  getModelProfiles: () => Promise<ModelProfile[]>;
+  saveModelProfile: (profile: Partial<ModelProfile>) => Promise<ModelProfile>;
+  deleteModelProfile: (id: string) => Promise<boolean>;
+  getAgents: () => Promise<AgentDefinition[]>;
+  saveAgent: (agent: Partial<AgentDefinition>) => Promise<AgentDefinition>;
+  deleteAgent: (id: string) => Promise<boolean>;
   terminalCreate: (options: { id: string; cwd: string; shellPath?: string; cols?: number; rows?: number }) => Promise<boolean>;
   terminalData: (id: string, data: string) => void;
   terminalResize: (id: string, cols: number, rows: number) => void;
@@ -393,11 +469,8 @@ export interface ICcraftedAPI {
   selectExecutableFile: () => Promise<string | null>;
   openExternalUrl: (url: string) => Promise<boolean>;
   getDiscoveredApps: () => Promise<any[]>;
-
   arrangeWorkspace: () => Promise<boolean>;
-
   onStreamStart: (callback: (payload: StreamStartPayload) => void) => () => void;
-
   onStreamToken: (callback: (payload: StreamTokenPayload) => void) => () => void;
   onStreamEnd: (callback: (payload: StreamEndPayload) => void) => () => void;
   onWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void;
@@ -408,4 +481,3 @@ declare global {
     craftedAPI: ICcraftedAPI;
   }
 }
-

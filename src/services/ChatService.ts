@@ -4,6 +4,9 @@ import { getDatabase } from '../database';
 import { Conversation, Message, CreateMessageInput, MessageRole, MessageStatus, MessageMetadata } from '../shared/types';
 import { ProviderManager } from '../ai/ProviderManager';
 import { AIChatMessage } from '../ai/types';
+import { AgentService } from './AgentService';
+import { ModelProfileService } from './ModelProfileService';
+import { ContextBuilderService } from './ContextBuilderService';
 
 export class ChatService {
   private static activeAborts: Map<string, AbortController> = new Map();
@@ -59,29 +62,28 @@ export class ChatService {
       .all(conversationId) as Array<{
       id: string;
       conversation_id: string;
-      role: string;
+      role: MessageRole;
       content: string;
-      status: string;
+      status: MessageStatus;
       created_at: string;
-      metadata: string;
+      metadata: string | null;
     }>;
 
     return rows.map((r) => {
-      let parsedMeta: MessageMetadata = {};
-      try {
-        parsedMeta = JSON.parse(r.metadata || '{}');
-      } catch {
-        parsedMeta = {};
+      let meta: MessageMetadata | undefined = undefined;
+      if (r.metadata) {
+        try {
+          meta = JSON.parse(r.metadata);
+        } catch {}
       }
-
       return {
         id: r.id,
         conversationId: r.conversation_id,
-        role: r.role as MessageRole,
+        role: r.role,
         content: r.content,
-        status: r.status as MessageStatus,
+        status: r.status,
         createdAt: r.created_at,
-        metadata: parsedMeta,
+        metadata: meta,
       };
     });
   }
@@ -116,7 +118,7 @@ export class ChatService {
       metadata: input.metadata || {},
     };
 
-    // 2. If message is from user, launch background streaming execution WITHOUT blocking IPC return
+    // 2. If message is from user, launch background streaming execution
     if (input.role === 'user') {
       const abortController = new AbortController();
       this.activeAborts.set(conversation.id, abortController);
@@ -126,7 +128,6 @@ export class ChatService {
       // Launch async stream in background
       setImmediate(async () => {
         let streamedContent = '';
-        const aiNow = new Date().toISOString();
 
         // Send chat:stream-start event immediately to create assistant message bubble
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -139,15 +140,44 @@ export class ChatService {
         }
 
         try {
+          // Resolve Agent and Model Profile mapping
+          const targetAgentId = (input.metadata?.agentId as string) || 'agent-architect';
+          const agent = AgentService.getAgentById(targetAgentId) || AgentService.getDefaultAgent();
+          const profile = agent
+            ? ModelProfileService.getProfileById(agent.profileId)
+            : ModelProfileService.getDefaultProfile();
+
+          // Build Prompt Context using ContextBuilderService
+          const contextResult = await ContextBuilderService.buildPromptContext({
+            projectId: input.projectId,
+            agentId: targetAgentId,
+            userPrompt: input.content.trim(),
+            selectedFilePaths: (input.metadata?.attachments as string[]) || [],
+            activeTabPath: input.metadata?.activeTabPath as string | undefined,
+            activeTabContent: input.metadata?.activeTabContent as string | undefined,
+          });
+
+          // Fetch message history for conversation
           const history = await this.getMessages(conversation.id);
-          const aiMessages: AIChatMessage[] = history.map((m) => ({
-            role: m.role,
-            content: m.content,
-          }));
+          const cleanHistory = history
+            .filter((m) => m.role !== 'system')
+            .map((m) => ({
+              role: m.role,
+              content: m.content,
+            }));
+
+          const aiMessages: AIChatMessage[] = [
+            { role: 'system', content: contextResult.systemPrompt },
+            ...cleanHistory,
+          ];
 
           const aiResponse = await ProviderManager.generateStreamingResponse(
             aiMessages,
-            undefined,
+            {
+              providerId: profile?.providerId as any,
+              modelId: profile?.modelId,
+              options: { temperature: profile?.temperature ?? 0.7 },
+            },
             (tokenChunk: string) => {
               streamedContent += tokenChunk;
               if (mainWindow && !mainWindow.isDestroyed()) {
@@ -166,6 +196,11 @@ export class ChatService {
           const aiMeta: MessageMetadata = {
             provider: aiResponse.providerId,
             model: aiResponse.modelId,
+            agentId: agent?.id,
+            agentName: agent?.name,
+            profileId: profile?.id,
+            profileName: profile?.name,
+            contextSummary: contextResult.contextSummary,
             tokensUsage: aiResponse.usage
               ? {
                   prompt: aiResponse.usage.promptTokens,
@@ -178,9 +213,7 @@ export class ChatService {
           db.prepare(`
             INSERT INTO messages (id, conversation_id, role, content, status, created_at, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(aiMessageId, conversation.id, 'assistant', finalContent, 'sent', aiNow, JSON.stringify(aiMeta));
-
-          db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(aiNow, conversation.id);
+          `).run(aiMessageId, conversation.id, 'assistant', finalContent, 'sent', new Date().toISOString(), JSON.stringify(aiMeta));
 
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('chat:stream-end', {
@@ -189,22 +222,33 @@ export class ChatService {
               fullText: finalContent,
             });
           }
-        } catch (err) {
-          console.error('[ChatService] Streaming completion error:', err);
+        } catch (err: any) {
+          if (err.name === 'AbortError' || abortController.signal.aborted) {
+            console.log('[ChatService] Generation cancelled by user for conversation:', conversation.id);
+            if (streamedContent.trim()) {
+              const aiMeta: MessageMetadata = { status: 'cancelled' };
+              db.prepare(`
+                INSERT INTO messages (id, conversation_id, role, content, status, created_at, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `).run(aiMessageId, conversation.id, 'assistant', streamedContent, 'sent', new Date().toISOString(), JSON.stringify(aiMeta));
+            }
+          } else {
+            console.error('[ChatService] Error generating streaming AI response:', err);
+            const errContent = `Error: ${err.message || 'Failed to generate response'}`;
+            const errMeta: MessageMetadata = { error: err.message };
 
-          if (streamedContent.trim()) {
             db.prepare(`
               INSERT INTO messages (id, conversation_id, role, content, status, created_at, metadata)
               VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(aiMessageId, conversation.id, 'assistant', streamedContent, 'sent', aiNow, '{}');
-          }
+            `).run(aiMessageId, conversation.id, 'assistant', errContent, 'error', new Date().toISOString(), JSON.stringify(errMeta));
 
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('chat:stream-end', {
-              conversationId: conversation.id,
-              messageId: aiMessageId,
-              fullText: streamedContent,
-            });
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('chat:stream-end', {
+                conversationId: conversation.id,
+                messageId: aiMessageId,
+                fullText: errContent,
+              });
+            }
           }
         } finally {
           this.activeAborts.delete(conversation.id);
@@ -212,11 +256,10 @@ export class ChatService {
       });
     }
 
-    // Return user message IMMEDIATELY to renderer
     return userMessage;
   }
 
-  public static cancelGeneration(conversationId: string): boolean {
+  public static async cancelGeneration(conversationId: string): Promise<boolean> {
     const controller = this.activeAborts.get(conversationId);
     if (controller) {
       controller.abort();
@@ -229,22 +272,14 @@ export class ChatService {
   public static async clearConversation(projectId: string): Promise<boolean> {
     if (!projectId) return false;
 
-    try {
-      const db = getDatabase();
-      const conversation = db
-        .prepare('SELECT id FROM conversations WHERE project_id = ?')
-        .get(projectId) as { id: string } | undefined;
+    const db = getDatabase();
+    const conversation = db.prepare('SELECT id FROM conversations WHERE project_id = ?').get(projectId) as { id: string } | undefined;
 
-      if (conversation) {
-        this.cancelGeneration(conversation.id);
-        db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(conversation.id);
-        const now = new Date().toISOString();
-        db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversation.id);
-      }
-      return true;
-    } catch (err) {
-      console.error(`[ChatService] Error clearing conversation for ${projectId}:`, err);
-      return false;
+    if (conversation) {
+      this.cancelGeneration(conversation.id);
+      db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(conversation.id);
+      db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), conversation.id);
     }
+    return true;
   }
 }

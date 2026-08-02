@@ -1,10 +1,14 @@
-export type AIProviderId = 'mock' | 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'lmstudio' | 'openrouter' | string;
+export type AIProviderId = 'mock' | 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'groq' | string;
 
 export interface AIProviderCapabilities {
   supportsChat: boolean;
   supportsStreaming: boolean;
   supportsVision: boolean;
   supportsTools: boolean;
+  supportsReasoning: boolean;
+  supportsEmbeddings: boolean;
+  supportsJsonMode: boolean;
+  supportsImageGeneration: boolean;
 }
 
 export interface AIModel {
@@ -60,7 +64,6 @@ export interface IAIProvider {
   id: AIProviderId;
   name: string;
   capabilities: AIProviderCapabilities;
-
   initialize(config?: AIProviderConfig): Promise<void>;
   isAvailable(): Promise<boolean>;
   getStatus(): Promise<AIProviderStatus>;
@@ -75,5 +78,5 @@ export interface IAIProvider {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal
   ): Promise<AIChatResponse>;
-  dispose(): Promise<void>;
+  dispose?(): Promise<void>;
 }

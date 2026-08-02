@@ -2,14 +2,21 @@ import {
   IAIProvider,
   AIProviderId,
   AIProviderStatus,
+  AIModel,
   AIChatMessage,
   AIChatCompletionOptions,
   AIChatResponse,
-  AIModel,
 } from './types';
 import { ProviderRegistry } from './ProviderRegistry';
 import { MockProvider } from './providers/MockProvider';
 import { OllamaProvider } from './providers/OllamaProvider';
+import { OpenAIProvider } from './providers/OpenAIProvider';
+import { AnthropicProvider } from './providers/AnthropicProvider';
+import { GeminiProvider } from './providers/GeminiProvider';
+import { OpenRouterProvider } from './providers/OpenRouterProvider';
+import { GroqProvider } from './providers/GroqProvider';
+import { LMStudioProvider } from './providers/LMStudioProvider';
+import { CustomProvider } from './providers/CustomProvider';
 import { AISettingsService } from '../services/AISettingsService';
 
 export class ProviderManager {
@@ -20,20 +27,30 @@ export class ProviderManager {
 
     const settings = AISettingsService.getAISettings();
 
-    // Register built-in MockProvider
-    const mock = new MockProvider();
-    await mock.initialize();
-    ProviderRegistry.registerProvider(mock);
+    // Register all providers
+    const providersList: IAIProvider[] = [
+      new MockProvider(),
+      new OllamaProvider(),
+      new OpenAIProvider(),
+      new AnthropicProvider(),
+      new GeminiProvider(),
+      new OpenRouterProvider(),
+      new GroqProvider(),
+      new LMStudioProvider(),
+      new CustomProvider(),
+    ];
 
-    // Register OllamaProvider
-    const ollama = new OllamaProvider();
-    await ollama.initialize({
-      providerId: 'ollama',
-      baseUrl: settings.ollamaBaseUrl,
-      activeModelId: settings.ollamaActiveModel,
-      isEnabled: true,
-    });
-    ProviderRegistry.registerProvider(ollama);
+    for (const p of providersList) {
+      const pConfig = settings.providersConfig?.[p.id] || {};
+      await p.initialize({
+        providerId: p.id,
+        baseUrl: (pConfig.baseUrl as string) || (p.id === 'ollama' ? settings.ollamaBaseUrl : undefined),
+        activeModelId: (pConfig.activeModelId as string) || (p.id === 'ollama' ? settings.ollamaActiveModel : undefined),
+        apiKey: (pConfig.apiKey as string) || undefined,
+        isEnabled: pConfig.isEnabled !== false,
+      });
+      ProviderRegistry.registerProvider(p);
+    }
 
     this.isInitialized = true;
   }
@@ -42,7 +59,7 @@ export class ProviderManager {
     await this.initialize();
 
     const settings = AISettingsService.getAISettings();
-    const targetId = preferredId || settings.activeProviderId || 'mock';
+    const targetId = preferredId || settings.activeProviderId || 'ollama';
 
     if (!ProviderRegistry.hasProvider(targetId)) {
       return ProviderRegistry.getProvider('mock');
@@ -50,16 +67,56 @@ export class ProviderManager {
 
     const provider = ProviderRegistry.getProvider(targetId);
 
-    // Fall back to MockProvider if target provider is unreachable (e.g. Ollama offline)
-    if (targetId !== 'mock') {
-      const isAvailable = await provider.isAvailable();
-      if (!isAvailable) {
-        console.warn(`[ProviderManager] Provider '${targetId}' is unreachable. Falling back to MockProvider.`);
-        return ProviderRegistry.getProvider('mock');
-      }
-    }
+    // Re-sync provider config with latest saved settings
+    const pConfig = settings.providersConfig?.[targetId] || {};
+    await provider.initialize({
+      providerId: targetId,
+      baseUrl: (pConfig.baseUrl as string) || (targetId === 'ollama' ? settings.ollamaBaseUrl : undefined),
+      activeModelId: (pConfig.activeModelId as string) || (targetId === 'ollama' ? settings.ollamaActiveModel : undefined),
+      apiKey: (pConfig.apiKey as string) || undefined,
+      isEnabled: pConfig.isEnabled !== false,
+    });
 
     return provider;
+  }
+
+  public static async getProviderStatuses(): Promise<AIProviderStatus[]> {
+    await this.initialize();
+    const providers = ProviderRegistry.getAllProviders();
+    const statuses = await Promise.all(providers.map((p) => p.getStatus()));
+    return statuses;
+  }
+
+  public static async listModels(providerId?: AIProviderId): Promise<AIModel[]> {
+    await this.initialize();
+    const provider = await this.getActiveProvider(providerId);
+    return provider.listModels();
+  }
+
+  public static async testConnection(
+    providerId: AIProviderId,
+    baseUrl?: string
+  ): Promise<{ success: boolean; isAvailable: boolean; error?: string }> {
+    await this.initialize();
+    if (!ProviderRegistry.hasProvider(providerId)) {
+      return { success: false, isAvailable: false, error: `Provider '${providerId}' not registered` };
+    }
+
+    const provider = ProviderRegistry.getProvider(providerId);
+    if (baseUrl) {
+      await provider.initialize({
+        providerId,
+        baseUrl,
+        isEnabled: true,
+      });
+    }
+
+    const isOk = await provider.isAvailable();
+    return {
+      success: isOk,
+      isAvailable: isOk,
+      error: isOk ? undefined : `Unreachable endpoint or missing credentials for provider '${providerId}'`,
+    };
   }
 
   public static async generateResponse(
@@ -81,8 +138,9 @@ export class ProviderManager {
     const provider = await this.getActiveProvider(options?.providerId);
 
     let selectedModel = options?.modelId;
-    if (!selectedModel && provider.id === 'ollama') {
-      selectedModel = settings.ollamaActiveModel;
+    if (!selectedModel) {
+      const pConfig = settings.providersConfig?.[provider.id];
+      selectedModel = pConfig?.activeModelId || (provider.id === 'ollama' ? settings.ollamaActiveModel : undefined);
     }
 
     if (provider.generateStreamingCompletion) {
@@ -107,41 +165,7 @@ export class ProviderManager {
     return response;
   }
 
-  public static async getProviderStatuses(): Promise<AIProviderStatus[]> {
-    await this.initialize();
-    const providers = ProviderRegistry.getAllProviders();
-    return Promise.all(providers.map((p) => p.getStatus()));
-  }
-
-  public static async listModels(providerId: AIProviderId): Promise<AIModel[]> {
-    await this.initialize();
-    if (!ProviderRegistry.hasProvider(providerId)) return [];
-    const provider = ProviderRegistry.getProvider(providerId);
-    return provider.listModels();
-  }
-
-  public static async testConnection(
-    providerId: AIProviderId,
-    baseUrl?: string
-  ): Promise<{ isAvailable: boolean; error?: string }> {
-    await this.initialize();
-    if (!ProviderRegistry.hasProvider(providerId)) {
-      return { isAvailable: false, error: `Provider '${providerId}' not found.` };
-    }
-
-    const provider = ProviderRegistry.getProvider(providerId);
-    if (baseUrl && 'initialize' in provider) {
-      await provider.initialize({ providerId, baseUrl, isEnabled: true });
-    }
-
-    const available = await provider.isAvailable();
-    return {
-      isAvailable: available,
-      error: available ? undefined : `Server unreachable at ${baseUrl || 'default address'}`,
-    };
-  }
-
-  public static async reloadSettings(): Promise<void> {
+  public static async updateOllamaConfig(): Promise<void> {
     const settings = AISettingsService.getAISettings();
     if (ProviderRegistry.hasProvider('ollama')) {
       const ollama = ProviderRegistry.getProvider('ollama');
@@ -157,7 +181,9 @@ export class ProviderManager {
   public static async dispose(): Promise<void> {
     const providers = ProviderRegistry.getAllProviders();
     for (const p of providers) {
-      await p.dispose();
+      if (p.dispose) {
+        await p.dispose();
+      }
     }
     ProviderRegistry.clear();
     this.isInitialized = false;

@@ -15,7 +15,7 @@ interface ChatStoreState {
 
   setComposerText: (text: string) => void;
   loadConversationForProject: (projectId: string | null) => Promise<void>;
-  sendMessage: (content: string) => Promise<Message | null>;
+  sendMessage: (content: string, metadata?: import('../shared/types').MessageMetadata) => Promise<Message | null>;
   cancelGeneration: () => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   clearConversation: () => Promise<void>;
@@ -82,7 +82,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
   },
 
-  sendMessage: async (content: string) => {
+  sendMessage: async (content: string, metadata?: import('../shared/types').MessageMetadata) => {
     const { currentProjectId, isSending, isGenerating } = get();
     const trimmed = content.trim();
 
@@ -91,12 +91,23 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return null;
     }
 
+    const tempUserMsg: Message = {
+      id: `temp-user-${Date.now()}`,
+      conversationId: get().activeConversation?.id || 'conv',
+      role: 'user',
+      content: trimmed,
+      status: 'sent',
+      createdAt: new Date().toISOString(),
+      metadata,
+    };
+
     const log1 = logStateChange('sendMessage START', { isSending: true, isGenerating: true, streamingMessageId: null, messagesCount: get().messages.length });
     set((state) => ({
       isSending: true,
       isGenerating: true,
       composerText: '',
       streamingContent: '',
+      messages: [...state.messages, tempUserMsg],
       debugLog: [...state.debugLog.slice(-15), log1],
     }));
 
@@ -106,17 +117,21 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           projectId: currentProjectId,
           role: 'user',
           content: trimmed,
+          metadata,
         };
 
         const userMsg = await window.craftedAPI.sendMessage(input);
 
         if (userMsg) {
-          const log2 = logStateChange('sendMessage IPC_RETURNED', { isSending: false, isGenerating: get().isGenerating, streamingMessageId: get().streamingMessageId, messagesCount: get().messages.length + 1 });
+          const log2 = logStateChange('sendMessage IPC_RETURNED', { isSending: false, isGenerating: get().isGenerating, streamingMessageId: get().streamingMessageId, messagesCount: get().messages.length });
           set((state) => {
-            // Functional update prevents stale closure overwrite of streamed assistant messages
-            const exists = state.messages.some((m) => m.id === userMsg.id);
-            const nextMessages = exists ? state.messages : [...state.messages, userMsg];
+            const hasTemp = state.messages.some((m) => m.id === tempUserMsg.id);
+            const nextMessages = hasTemp
+              ? state.messages.map((m) => (m.id === tempUserMsg.id ? userMsg : m))
+              : [...state.messages, userMsg];
+
             return {
+              isSending: false,
               messages: nextMessages,
               debugLog: [...state.debugLog.slice(-15), log2],
             };

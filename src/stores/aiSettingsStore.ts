@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { AISettings } from '../shared/types';
+import { AISettings, ModelProfile, AgentDefinition } from '../shared/types';
 import { AIProviderStatus, AIModel } from '../ai/types';
 
-export type SettingsCategory = 'general' | 'ai-providers' | 'keyboard-shortcuts' | 'workspace' | 'about';
+export type SettingsCategory = 'general' | 'ai-providers' | 'model-profiles' | 'agents' | 'keyboard-shortcuts' | 'workspace' | 'about';
 
 interface AISettingsStoreState {
   isSettingsOpen: boolean;
@@ -10,6 +10,10 @@ interface AISettingsStoreState {
   aiSettings: AISettings;
   providerStatuses: AIProviderStatus[];
   availableModels: Record<string, AIModel[]>;
+  modelProfiles: ModelProfile[];
+  agents: AgentDefinition[];
+  activeAgentId: string;
+  isSafeStorageAvailable: boolean;
   isLoading: boolean;
   isTestingConnection: boolean;
   testError: string | null;
@@ -21,19 +25,33 @@ interface AISettingsStoreState {
   fetchStatuses: () => Promise<void>;
   fetchModels: (providerId: string) => Promise<void>;
   testConnection: (providerId: string, baseUrl?: string) => Promise<boolean>;
+  saveProviderApiKey: (providerId: string, apiKey: string, mode?: 'safeStorage' | 'sessionOnly' | 'unencryptedOptIn') => Promise<boolean>;
+  getProviderApiKey: (providerId: string) => Promise<string | null>;
+  loadProfilesAndAgents: () => Promise<void>;
+  saveModelProfile: (profile: Partial<ModelProfile>) => Promise<ModelProfile | null>;
+  deleteModelProfile: (id: string) => Promise<boolean>;
+  saveAgent: (agent: Partial<AgentDefinition>) => Promise<AgentDefinition | null>;
+  deleteAgent: (id: string) => Promise<boolean>;
+  setActiveAgentId: (id: string) => void;
 }
 
 export const useAISettingsStore = create<AISettingsStoreState>((set, get) => ({
   isSettingsOpen: false,
   activeCategory: 'ai-providers',
   aiSettings: {
-    activeProviderId: 'mock',
-    ollamaBaseUrl: 'http://localhost:11434',
-    ollamaActiveModel: '',
-    enabledProviders: ['mock', 'ollama'],
+    activeProviderId: 'ollama',
+    ollamaBaseUrl: 'http://127.0.0.1:11434',
+    ollamaActiveModel: 'qwen2.5:7b',
+    enabledProviders: ['mock', 'ollama', 'openai', 'anthropic', 'gemini', 'openrouter', 'groq', 'lmstudio', 'custom'],
+    providersConfig: {},
+    keyStorageMode: 'safeStorage',
   },
   providerStatuses: [],
   availableModels: {},
+  modelProfiles: [],
+  agents: [],
+  activeAgentId: 'agent-architect',
+  isSafeStorageAvailable: true,
   isLoading: true,
   isTestingConnection: false,
   testError: null,
@@ -53,16 +71,28 @@ export const useAISettingsStore = create<AISettingsStoreState>((set, get) => ({
       try {
         const settings = await window.craftedAPI.getAISettings();
         const statuses = (await window.craftedAPI.getAIStatuses()) as AIProviderStatus[];
+        const secStatus = await window.craftedAPI.getAISecurityStatus();
+        const profiles = await window.craftedAPI.getModelProfiles();
+        const agentList = await window.craftedAPI.getAgents();
 
         set({
           aiSettings: settings,
           providerStatuses: statuses,
+          isSafeStorageAvailable: secStatus.isSafeStorageAvailable,
+          modelProfiles: profiles || [],
+          agents: agentList || [],
           isLoading: false,
         });
 
-        // Pre-fetch models for enabled providers
+        // Pre-fetch models for key providers
         await get().fetchModels('mock');
         await get().fetchModels('ollama');
+        await get().fetchModels('openai');
+        await get().fetchModels('anthropic');
+        await get().fetchModels('gemini');
+        await get().fetchModels('openrouter');
+        await get().fetchModels('groq');
+        await get().fetchModels('lmstudio');
       } catch (err) {
         console.error('[aiSettingsStore] Error loading AI settings:', err);
         set({ isLoading: false });
@@ -121,21 +151,97 @@ export const useAISettingsStore = create<AISettingsStoreState>((set, get) => ({
     set({ isTestingConnection: true, testError: null });
     if (typeof window !== 'undefined' && window.craftedAPI) {
       try {
-        const result = await window.craftedAPI.testAIConnection(providerId, baseUrl);
-        set({
-          isTestingConnection: false,
-          testError: result.isAvailable ? null : result.error || 'Connection failed',
-        });
-        await get().fetchStatuses();
-        await get().fetchModels(providerId);
-        return result.isAvailable;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Connection test failed';
-        set({ isTestingConnection: false, testError: msg });
+        const result = (await window.craftedAPI.testAIConnection(providerId, baseUrl)) as {
+          isAvailable?: boolean;
+          success?: boolean;
+          error?: string;
+        };
+
+        if (result.isAvailable || result.success) {
+          set({ isTestingConnection: false, testError: null });
+          await get().fetchStatuses();
+          return true;
+        } else {
+          set({
+            isTestingConnection: false,
+            testError: result.error || 'Connection failed',
+          });
+          return false;
+        }
+      } catch (err: any) {
+        set({ isTestingConnection: false, testError: err.message || 'Connection failed' });
         return false;
       }
     }
-    set({ isTestingConnection: false });
+    set({ isTestingConnection: false, testError: 'API not available' });
     return false;
   },
+
+  saveProviderApiKey: async (providerId: string, apiKey: string, mode?: 'safeStorage' | 'sessionOnly' | 'unencryptedOptIn') => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      const ok = await window.craftedAPI.saveAIProviderKey(providerId, apiKey, mode);
+      if (ok) {
+        await get().loadAISettings();
+      }
+      return ok;
+    }
+    return false;
+  },
+
+  getProviderApiKey: async (providerId: string) => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      return window.craftedAPI.getAIProviderKey(providerId);
+    }
+    return null;
+  },
+
+  loadProfilesAndAgents: async () => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      const profiles = await window.craftedAPI.getModelProfiles();
+      const agentList = await window.craftedAPI.getAgents();
+      set({ modelProfiles: profiles || [], agents: agentList || [] });
+    }
+  },
+
+  saveModelProfile: async (profile: Partial<ModelProfile>) => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      const result = await window.craftedAPI.saveModelProfile(profile);
+      await get().loadProfilesAndAgents();
+      return result;
+    }
+    return null;
+  },
+
+  deleteModelProfile: async (id: string) => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      const ok = await window.craftedAPI.deleteModelProfile(id);
+      if (ok) {
+        await get().loadProfilesAndAgents();
+      }
+      return ok;
+    }
+    return false;
+  },
+
+  saveAgent: async (agent: Partial<AgentDefinition>) => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      const result = await window.craftedAPI.saveAgent(agent);
+      await get().loadProfilesAndAgents();
+      return result;
+    }
+    return null;
+  },
+
+  deleteAgent: async (id: string) => {
+    if (typeof window !== 'undefined' && window.craftedAPI) {
+      const ok = await window.craftedAPI.deleteAgent(id);
+      if (ok) {
+        await get().loadProfilesAndAgents();
+      }
+      return ok;
+    }
+    return false;
+  },
+
+  setActiveAgentId: (id: string) => set({ activeAgentId: id }),
 }));
