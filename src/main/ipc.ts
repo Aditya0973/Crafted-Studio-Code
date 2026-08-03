@@ -82,9 +82,20 @@ export function setupIPCHandlers(mainWindow?: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.PROJECT_CREATE, (_event, input: CreateProjectInput) =>
     ProjectService.createProject(input)
   );
-  ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, (_event, projectPath?: string) =>
-    ProjectService.openProject(projectPath)
-  );
+  ipcMain.handle(IPC_CHANNELS.PROJECT_OPEN, async (_event, projectPath?: string) => {
+    let targetPath = projectPath;
+    if (!targetPath) {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Open Project Folder',
+        properties: ['openDirectory'],
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      targetPath = result.filePaths[0];
+    }
+    return ProjectService.openProject(targetPath);
+  });
   ipcMain.handle(IPC_CHANNELS.PROJECT_IMPORT, (_event, input: ImportProjectInput) =>
     ProjectService.importProject(input)
   );

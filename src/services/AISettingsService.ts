@@ -34,7 +34,7 @@ export class AISettingsService {
   public static getAISettings(): AISettings {
     try {
       const db = getDatabase();
-      const rows = db.prepare('SELECT key, value FROM settings WHERE key LIKE "ai_%"').all() as Array<{
+      const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'ai_%'").all() as Array<{
         key: string;
         value: string;
       }>;
